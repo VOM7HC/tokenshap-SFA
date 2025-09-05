@@ -6,6 +6,7 @@ Improved implementation with bug fixes and architectural enhancements
 # Main imports for easy access
 from .tokenshap_with_sfa import TokenSHAPWithSFA
 from .tokenshap_ollama import TokenSHAPWithOllama, OllamaTokenSHAP
+from .cot_ollama_reasoning import OllamaCoTAnalyzer, quick_cot_analysis
 from .config import TokenSHAPConfig, AttributionMethod
 from .token_shap import EnhancedTokenSHAP
 from .sfa_learner import SFAMetaLearner
@@ -26,6 +27,8 @@ __all__ = [
     'TokenSHAPWithSFA',
     'TokenSHAPWithOllama',
     'OllamaTokenSHAP',
+    'OllamaCoTAnalyzer',
+    'quick_cot_analysis',
     'TokenSHAPConfig', 
     'AttributionMethod',
     'EnhancedTokenSHAP',
