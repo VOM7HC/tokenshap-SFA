@@ -1,15 +1,21 @@
 # Core dependencies for TokenSHAP with SFA
 numpy>=1.21.0
-pandas>=1.3.0
-torch>=1.11.0
-transformers>=4.20.0
 scikit-learn>=1.1.0
-scipy>=1.8.0
+requests>=2.25.0  # For Ollama API calls
 
-# Optional dependencies for enhanced functionality
-# Uncomment as needed:
+# Optional dependencies - install as needed:
+# For transformers support (recommended but not required):
+# torch>=1.11.0
+# transformers>=4.20.0
+# pandas>=1.3.0
+# scipy>=1.8.0
+
+# For enhanced functionality:
 # accelerate>=0.20.0  # For GPU acceleration
 # datasets>=2.0.0     # For loading datasets
 # matplotlib>=3.5.0   # For visualization
 # seaborn>=0.11.0     # For advanced plotting
 # jupyter>=1.0.0      # For notebook examples
+
+# Note: The framework now works with just numpy, scikit-learn, and requests
+# for basic Ollama integration. Transformers dependencies are optional.
