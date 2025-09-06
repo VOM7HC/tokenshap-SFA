@@ -8,7 +8,17 @@ import logging
 import time
 from typing import List, Dict, Any
 from concurrent.futures import ThreadPoolExecutor
-from transformers import AutoTokenizer, PreTrainedModel
+# Optional transformers import
+try:
+    from transformers import AutoTokenizer, PreTrainedModel
+    TRANSFORMERS_AVAILABLE = True
+except ImportError:
+    TRANSFORMERS_AVAILABLE = False
+    # Create placeholder classes
+    class AutoTokenizer:
+        pass
+    class PreTrainedModel:
+        pass
 from config import TokenSHAPConfig, AttributionMethod
 from token_shap import EnhancedTokenSHAP
 from sfa_learner import SFAMetaLearner

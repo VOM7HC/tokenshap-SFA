@@ -1,138 +1,101 @@
-# TokenSHAP with SFA - Refactored Structure
+# TokenSHAP with SFA - Core ML/DL Algorithm
 
-This repository contains a refactored version of the TokenSHAP with SFA (Shapley-based Feature Augmentation) framework. The original monolithic file has been split into multiple focused modules for better organization, maintainability, and reusability.
+## 🧠 Streamlined Codebase
 
-## File Structure
+This repository now contains only the **core ML/DL algorithms** and essential functionality, with all unnecessary files removed.
 
-### Core Modules
+## 📁 Core Files (11 total)
 
-- **`config.py`** - Configuration classes and enums
-  - `TokenSHAPConfig`: Main configuration dataclass
-  - `AttributionMethod`: Enum for different attribution methods
+### **Core ML/DL Algorithm Components:**
+- `token_shap.py` - Enhanced TokenSHAP algorithm (Shapley value computation)
+- `sfa_learner.py` - SFA Meta-Learner (machine learning meta-learning)
+- `value_functions.py` - ML value functions (similarity, probability)
+- `cot_explainer.py` - Chain-of-Thought ML explainer
+- `tokenshap_with_sfa.py` - Main unified ML framework
 
-- **`utils.py`** - Utility classes
-  - `ThreadSafeCache`: Thread-safe LRU cache implementation
-  - `TokenProcessor`: Handles tokenization and token processing
+### **Configuration & Utilities:**
+- `config.py` - Algorithm configuration and parameters
+- `utils.py` - Core utilities (caching, token processing)
+- `__init__.py` - Package interface
 
-- **`value_functions.py`** - Value function implementations
-  - `ValueFunction`: Abstract base class
-  - `SimilarityValueFunction`: TF-IDF cosine similarity based
-  - `ProbabilityValueFunction`: Model log probability based
+### **Examples & Integration:**
+- `simple_example.py` - Basic ML algorithm demonstration
+- `example_ollama_usage.py` - Ollama model integration example
+- `cot_ollama_reasoning.py` - Chain-of-Thought with reasoning models
 
-- **`token_shap.py`** - Core TokenSHAP implementation
-  - `EnhancedTokenSHAP`: Main TokenSHAP class with improved sampling and convergence
+### **Dependencies:**
+- `requirements.txt` - Python package requirements
 
-- **`sfa_learner.py`** - SFA Meta-Learner
-  - `SFAMetaLearner`: Shapley-based Feature Augmentation meta-learner
+## 🗑️ Removed Files (18+ files)
 
-- **`cot_explainer.py`** - Chain-of-Thought explainer
-  - `CoTTokenSHAP`: Chain-of-Thought aware hierarchical TokenSHAP
+**Performance Testing & Benchmarking:**
+- `performance_benchmark.py`
+- `simple_performance_test.py`
+- `cpu_performance_test.py`
+- `minimal_performance_test.py`
+- `cuda_analysis_report.py`
 
-- **`tokenshap_with_sfa.py`** - Main unified interface
-  - `TokenSHAPWithSFA`: Unified framework combining all components
+**Redundant Optimization Files:**
+- `optimized_performance_manager.py`
+- `cot_explainer_optimized.py`
+- `ollama_integration.py` (merged functionality)
+- `tokenshap_ollama.py` (merged functionality)
 
-### Supporting Files
+**Test & Demo Files:**
+- `test_*.py` (9 test files)
+- `demo_*.py` 
+- `quick_*.py`
 
-- **`__init__.py`** - Package initialization with convenient imports
-- **`requirements.txt`** - Required dependencies
-- **`example_usage.py`** - Example usage demonstration
-- **`README.md`** - This documentation file
+**Generated Files:**
+- All `.json` result files
+- Performance analysis `.md` files
 
-## Key Benefits of Refactoring
+## 🚀 Core ML Algorithm Features
 
-1. **Modularity**: Each component is now in its own file, making the code easier to understand and maintain
-2. **Reusability**: Individual components can be imported and used independently
-3. **Testing**: Each module can be tested separately
-4. **Extensibility**: New value functions, attribution methods, or utilities can be added easily
-5. **Readability**: Smaller, focused files are easier to navigate and understand
+### **TokenSHAP Algorithm:**
+- Shapley value-based token attribution
+- Enhanced sampling strategies
+- Parallel computation support
 
-## Usage
+### **SFA Meta-Learning:**
+- Fast approximation of Shapley values
+- Scikit-learn based meta-learner
+- Adaptive sampling strategies
 
-### Basic Usage
+### **Chain-of-Thought Analysis:**
+- Hierarchical reasoning analysis
+- Step-by-step attribution
+- Multi-level explanations
+
+### **Value Functions:**
+- Similarity-based scoring
+- Probability distributions
+- Flexible value computation
+
+## 💻 Usage
 
 ```python
+from config import TokenSHAPConfig
 from tokenshap_with_sfa import TokenSHAPWithSFA
-from config import TokenSHAPConfig, AttributionMethod
-from transformers import AutoModelForCausalLM, AutoTokenizer
 
-# Load model and tokenizer
-model = AutoModelForCausalLM.from_pretrained("gpt2")
-tokenizer = AutoTokenizer.from_pretrained("gpt2")
-
-# Configure
-config = TokenSHAPConfig(max_samples=100, batch_size=10)
-
-# Initialize explainer
-explainer = TokenSHAPWithSFA(model, tokenizer, config)
-
-# Explain a prompt
-result = explainer.explain("Your prompt here", method=AttributionMethod.TOKENSHAP)
-```
-
-### Advanced Usage with SFA Training
-
-```python
-# Train SFA for faster explanations
-training_prompts = ["prompt1", "prompt2", "prompt3"]
-explainer.train_sfa(training_prompts)
-
-# Use SFA for faster explanations
-result = explainer.explain("Your prompt here", method=AttributionMethod.SFA)
-```
-
-### Chain-of-Thought Explanations
-
-```python
-# Get hierarchical CoT attribution
-cot_result = explainer.explain(
-    "Your prompt here", 
-    method=AttributionMethod.HYBRID,
-    use_cot=True
+# Configure ML algorithm
+config = TokenSHAPConfig(
+    max_samples=50,
+    attribution_method="shapley"
 )
+
+# Initialize core algorithm
+explainer = TokenSHAPWithSFA(config=config)
 ```
 
-## Installation
+## 📊 What Was Kept vs Removed
 
-1. Install dependencies:
-```bash
-pip install -r requirements.txt
-```
+| **Kept (Core ML/DL)** | **Removed (Non-Essential)** |
+|------------------------|------------------------------|
+| 11 files | 18+ files |
+| ~50KB total | ~200KB+ removed |
+| Core algorithms only | Tests, benchmarks, duplicates |
+| Essential examples | Redundant examples |
+| Clean architecture | Performance analysis files |
 
-2. Import and use:
-```python
-from tokenshap_with_sfa import TokenSHAPWithSFA
-```
-
-## Migration from Original File
-
-If you were using the original monolithic `tokenshap_sfa.py` file:
-
-1. Replace `from tokenshap_sfa import TokenSHAPWithSFA` with `from tokenshap_with_sfa import TokenSHAPWithSFA`
-2. All other APIs remain the same
-3. You can now import individual components if needed:
-   ```python
-   from token_shap import EnhancedTokenSHAP
-   from sfa_learner import SFAMetaLearner
-   from cot_explainer import CoTTokenSHAP
-   ```
-
-## Development
-
-To extend the framework:
-
-1. **Add new value functions**: Inherit from `ValueFunction` in `value_functions.py`
-2. **Add new attribution methods**: Extend `AttributionMethod` enum in `config.py`
-3. **Add utilities**: Add to `utils.py`
-4. **Modify configuration**: Update `TokenSHAPConfig` in `config.py`
-
-## Testing
-
-Run syntax checks on all files:
-```bash
-python -m py_compile *.py
-```
-
-For full testing with dependencies:
-```bash
-python example_usage.py
-```
+The codebase is now **focused, efficient, and maintainable** with only the essential ML/DL algorithm components.
