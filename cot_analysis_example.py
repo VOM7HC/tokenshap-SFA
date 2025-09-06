@@ -22,24 +22,32 @@ def demo_quick_cot_analysis():
     ]
     
     print("📝 Testing Chain-of-Thought reasoning analysis...")
+    print("💡 Using phi4-reasoning (14.7B parameters) - GPU accelerated")
+    print("⏰ Expected time per example: 15-30 seconds with RTX 4090")
     
     for i, prompt in enumerate(test_prompts, 1):
         print(f"\n🔍 Example {i}:")
         print(f"Prompt: '{prompt[:60]}...' " if len(prompt) > 60 else f"Prompt: '{prompt}'")
         
-        # Use quick analysis function
+        # Use quick analysis function with phi4-reasoning
         try:
+            print("🔄 Processing with phi4-reasoning (please be patient)...")
             result = quick_cot_analysis(
                 prompt, 
-                model_name="phi4-reasoning:latest",  # Adjust based on your available model
+                model_name="phi4-reasoning:latest",
                 api_url="http://127.0.0.1:11434"
             )
             print("✅ Analysis completed")
-            print("📊 Result preview:", result[:100] + "..." if len(result) > 100 else result)
+            print("📊 Result preview:", result[:200] + "..." if len(result) > 200 else result)
             
         except Exception as e:
-            print(f"⚠️  Analysis demo (model not available): {e}")
-            print("💡 This would work with a running Ollama phi4-reasoning model")
+            print(f"❌ Analysis failed: {str(e)[:100]}...")
+            if "timeout" in str(e).lower():
+                print("💡 phi4-reasoning timed out - this is normal for large models")
+                print("💡 Try a simpler prompt or check GPU memory")
+            else:
+                print("💡 Make sure Ollama is running: ollama serve")
+                print("💡 Verify model is available: ollama list")
 
 
 def demo_detailed_cot_analysis():
