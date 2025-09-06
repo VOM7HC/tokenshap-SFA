@@ -7,8 +7,33 @@ import logging
 import re
 from typing import List, Dict, Tuple, Optional, Any, Union
 from config import TokenSHAPConfig
-from tokenshap_ollama import TokenSHAPWithOllama, OllamaTokenSHAP
-from ollama_integration import OllamaModel, SimpleOllamaModel
+# Create simple Ollama interface (self-contained)
+import requests
+import json
+
+class SimpleOllamaModel:
+    """Simple Ollama model interface"""
+    def __init__(self, model_name: str, api_url: str = "http://127.0.0.1:11434"):
+        self.model_name = model_name
+        self.api_url = api_url
+    
+    def generate(self, prompt: str, **kwargs) -> str:
+        """Generate response from Ollama model"""
+        try:
+            response = requests.post(
+                f"{self.api_url}/api/generate",
+                json={
+                    "model": self.model_name,
+                    "prompt": prompt,
+                    "stream": False,
+                    **kwargs
+                },
+                timeout=60
+            )
+            response.raise_for_status()
+            return response.json().get("response", "")
+        except Exception as e:
+            raise Exception(f"Ollama generation failed: {e}")
 
 logger = logging.getLogger(__name__)
 
@@ -28,14 +53,15 @@ class OllamaCoTAnalyzer:
         self.api_url = api_url
         
         # Initialize Ollama model for reasoning
-        self.reasoning_model = OllamaModel(model_name, api_url)
+        self.reasoning_model = SimpleOllamaModel(model_name, api_url)
         
-        # Initialize TokenSHAP for step analysis
-        self.token_explainer = TokenSHAPWithOllama(
-            model_name=model_name,
-            api_url=api_url,
-            config=config
-        )
+        # Initialize basic TokenSHAP components (simplified for self-contained version)
+        from token_shap import EnhancedTokenSHAP
+        from sfa_learner import SFAMetaLearner
+        
+        # Use core components without transformers dependency
+        self.token_explainer = None  # Will be initialized if needed
+        self.sfa_learner = SFAMetaLearner(config)
         
         # CoT-specific patterns for reasoning models
         self.reasoning_patterns = self._initialize_reasoning_patterns()
@@ -476,7 +502,13 @@ def quick_cot_analysis(prompt: str,
     Quick CoT analysis with text visualization
     """
     try:
-        analyzer = OllamaCoTAnalyzer(model_name, api_url)
+        # Create a proper config for the analyzer
+        config = TokenSHAPConfig(
+            max_samples=10,        # Fast analysis
+            parallel_workers=1,    # Single worker for simplicity
+            cot_max_steps=5       # Limit steps for quick analysis
+        )
+        analyzer = OllamaCoTAnalyzer(model_name, api_url, config)
         result = analyzer.analyze_cot_attribution(prompt, analyze_steps=False)  # Skip token analysis for speed
         return analyzer.visualize_reasoning_analysis(result)
     except Exception as e:

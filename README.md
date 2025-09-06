@@ -4,7 +4,7 @@
 
 This repository now contains only the **core ML/DL algorithms** and essential functionality, with all unnecessary files removed.
 
-## 📁 Core Files (11 total)
+## 📁 Core Files (13 total)
 
 ### **Core ML/DL Algorithm Components:**
 - `token_shap.py` - Enhanced TokenSHAP algorithm (Shapley value computation)
@@ -20,6 +20,8 @@ This repository now contains only the **core ML/DL algorithms** and essential fu
 
 ### **Examples & Integration:**
 - `simple_example.py` - Basic ML algorithm demonstration
+- **`cot_demo.py`** - **Chain-of-Thought ML/DL demo (works offline)** ⭐
+- `cot_analysis_example.py` - Full CoT analysis with Ollama integration
 - `example_ollama_usage.py` - Ollama model integration example
 - `cot_ollama_reasoning.py` - Chain-of-Thought with reasoning models
 
