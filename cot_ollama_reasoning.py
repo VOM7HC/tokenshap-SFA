@@ -284,24 +284,46 @@ class OllamaCoTAnalyzer:
         if analyze_steps:
             logger.info("Analyzing token-level attributions for each step...")
             
-            for i, step in enumerate(reasoning_steps):
-                try:
-                    # Use a lightweight config for step analysis
-                    step_config = TokenSHAPConfig(max_samples=5)  # Fast analysis
-                    step_result = self.token_explainer.explain(step)
+            # Check if token explainer is available
+            if self.token_explainer is None:
+                logger.info("Token explainer not available - using simplified step analysis")
+                # Use simplified analysis for each step
+                for i, step in enumerate(reasoning_steps):
+                    # Simple token importance based on word characteristics
+                    tokens = step.split()
+                    token_attrs = {}
                     
-                    token_attributions.append(step_result)
+                    for j, token in enumerate(tokens):
+                        # Simple heuristic: longer words and central positions are more important
+                        importance = len(token) / 15.0  # Word length factor
+                        importance += (1.0 - abs(j - len(tokens)/2) / (len(tokens)/2 + 1)) * 0.3
+                        token_attrs[token.lower()] = round(importance, 3)
                     
-                    # Calculate step complexity
-                    complexity = sum(abs(v) for v in step_result.values())
+                    token_attributions.append(token_attrs)
+                    complexity = sum(abs(v) for v in token_attrs.values())
                     step_complexities.append(complexity)
                     
-                    logger.info(f"Analyzed step {i+1}/{len(reasoning_steps)}")
-                    
-                except Exception as e:
-                    logger.warning(f"Error analyzing step {i+1}: {str(e)}")
-                    token_attributions.append({})
-                    step_complexities.append(0.0)
+                    logger.info(f"Analyzed step {i+1}/{len(reasoning_steps)} (simplified)")
+            else:
+                # Use full token explainer
+                for i, step in enumerate(reasoning_steps):
+                    try:
+                        # Use a lightweight config for step analysis
+                        step_config = TokenSHAPConfig(max_samples=5)  # Fast analysis
+                        step_result = self.token_explainer.explain(step)
+                        
+                        token_attributions.append(step_result)
+                        
+                        # Calculate step complexity
+                        complexity = sum(abs(v) for v in step_result.values())
+                        step_complexities.append(complexity)
+                        
+                        logger.info(f"Analyzed step {i+1}/{len(reasoning_steps)}")
+                        
+                    except Exception as e:
+                        logger.warning(f"Error analyzing step {i+1}: {str(e)}")
+                        token_attributions.append({})
+                        step_complexities.append(0.0)
         
         # Step 4: Identify critical components
         critical_steps = self._identify_critical_steps(reasoning_steps, step_importance)
