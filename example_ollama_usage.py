@@ -18,17 +18,12 @@ def main():
     print("TokenSHAP with Ollama - Example Usage")
     print("=" * 50)
     
-    # Your specified configurations
+    # Using phi4-reasoning model (GPU accelerated)
     models_to_test = [
         {
-            "name": "gemma2:2b",
+            "name": "phi4-reasoning:latest",
             "url": "http://127.0.0.1:11434",
-            "description": "Local Gemma 2B model"
-        },
-        {
-            "name": "llama3.2-vision:latest", 
-            "url": "http://35.95.163.15:11434",
-            "description": "Remote Llama 3.2 Vision model"
+            "description": "Local phi4-reasoning model (RTX 4090 optimized)"
         }
     ]
     
@@ -39,12 +34,13 @@ def main():
         status = "✓ Available" if is_available else "✗ Not available"
         print(f"   {model_config['description']}: {status}")
     
-    # Configuration for faster testing
+    # Configuration optimized for phi4-reasoning (large model)
     config = TokenSHAPConfig(
-        max_samples=20,  # Reduced for faster demo
-        batch_size=5,
-        convergence_threshold=0.05,
-        parallel_workers=1  # Keep it simple for Ollama
+        max_samples=5,  # Reduced significantly for phi4-reasoning performance
+        batch_size=2,   # Smaller batches for memory efficiency
+        convergence_threshold=0.1,  # Less strict for faster results
+        parallel_workers=1,  # Single worker for stability with large model
+        cache_responses=True,  # Cache to avoid re-computation
     )
     
     # Example prompts
@@ -60,13 +56,17 @@ def main():
         "Computer vision recognizes images and objects.",
     ]
     
-    # Test each available model
+    # Test phi4-reasoning model with proper timeout handling
     for model_config in models_to_test:
         print(f"\n2. Testing {model_config['description']}...")
         print("=" * 60)
+        print("💡 phi4-reasoning is a large model (14.7B parameters)")
+        print("⏰ Expected time: 1-3 minutes with GPU acceleration")
+        print("🔥 First analysis may take extra time for warmup...")
         
         try:
-            # Initialize TokenSHAP with Ollama
+            # Initialize TokenSHAP with phi4-reasoning
+            print("\n🔄 Initializing TokenSHAP with phi4-reasoning...")
             explainer = TokenSHAPWithOllama(
                 model_name=model_config["name"],
                 api_url=model_config["url"],
@@ -75,11 +75,12 @@ def main():
             
             print(f"✓ Initialized TokenSHAP with {model_config['name']}")
             
-            # Test basic explanation
+            # Test basic explanation with simple prompt
             test_prompt = test_prompts[0]
-            print(f"\n   Analyzing: '{test_prompt}'")
+            print(f"\n⚡ Analyzing: '{test_prompt}'")
+            print("🔄 Processing with phi4-reasoning (please be patient)...")
             
-            result = explainer.explain(test_prompt, max_samples=10)
+            result = explainer.explain(test_prompt, max_samples=3)  # Reduced for phi4-reasoning
             
             print("   Token importance rankings:")
             sorted_tokens = sorted(result.items(), key=lambda x: abs(x[1]), reverse=True)
@@ -129,41 +130,58 @@ def main():
     print("- Both local and remote Ollama servers are supported")
     print("\nNext steps:")
     print("1. Install Ollama: https://ollama.ai/")
-    print("2. Pull models: ollama pull gemma2:2b")
+    print("2. Pull models: ollama pull phi4-reasoning:latest")
     print("3. Run this example with your models")
     
 
 def simple_usage_example():
-    """Simple usage example for quick testing"""
-    print("\nSimple Usage Example:")
-    print("-" * 30)
+    """Simple usage example for phi4-reasoning with proper timeouts"""
+    print("\nSimple Usage Example with phi4-reasoning:")
+    print("-" * 45)
     
-    # Quick setup - adjust model and URL as needed
-    model_name = "gemma2:2b"  # or "llama3.2:3b", etc.
+    # Setup for phi4-reasoning model (requires longer timeouts)
+    model_name = "phi4-reasoning:latest"  # GPU-optimized reasoning model
     api_url = "http://127.0.0.1:11434"  # your Ollama server
     
+    print(f"💡 Using {model_name} (14.7B parameters)")
+    print("⏰ Expected time: 30-60 seconds with GPU acceleration")
+    print("🔥 First run may take extra time for model warmup...")
+    
     try:
-        # Initialize (will use simple tokenizer if transformers not available)
+        # Initialize with reduced samples for phi4-reasoning
+        print("\n🔄 Initializing TokenSHAP with phi4-reasoning...")
         explainer = TokenSHAPWithOllama(
             model_name=model_name,
             api_url=api_url,
-            config=TokenSHAPConfig(max_samples=5)  # Very fast for testing
+            config=TokenSHAPConfig(
+                max_samples=3,  # Reduced for phi4-reasoning performance
+                parallel_workers=1,  # Single worker for stability
+                convergence_threshold=0.1  # Less strict for faster results
+            )
         )
         
         # Explain a simple prompt
         prompt = "AI will change the world."
+        print(f"\n⚡ Analyzing prompt: '{prompt}'")
+        print("🔄 Processing with phi4-reasoning (please be patient)...")
+        
         result = explainer.explain(prompt)
         
-        print(f"Prompt: '{prompt}'")
-        print("Token importance:")
+        print(f"\n✅ Analysis completed!")
+        print("📊 Token importance scores:")
         for token, importance in result.items():
             print(f"  '{token}': {importance:+.3f}")
         
-        print("\n✓ Simple example completed!")
+        print("\n🎯 phi4-reasoning analysis completed successfully!")
         
     except Exception as e:
-        print(f"✗ Simple example failed: {str(e)}")
-        print("Make sure Ollama is running and the model is available.")
+        print(f"\n❌ Analysis failed: {str(e)}")
+        if "timeout" in str(e).lower():
+            print("💡 phi4-reasoning timed out - this is normal for large models")
+            print("💡 Try increasing timeout or use a smaller model for testing")
+        else:
+            print("💡 Make sure Ollama is running: ollama serve")
+            print("💡 Verify model is available: ollama list")
 
 
 if __name__ == "__main__":

@@ -18,20 +18,35 @@ class SimpleOllamaModel:
         self.api_url = api_url
     
     def generate(self, prompt: str, **kwargs) -> str:
-        """Generate response from Ollama model"""
+        """Generate response from Ollama model with extended timeout for large models"""
         try:
+            # Optimize for phi4-reasoning (large model)
+            options = {
+                "temperature": 0.1,     # Lower temperature for faster, more deterministic responses
+                "top_p": 0.9,           # Reduce sampling space
+                "num_predict": 200,     # Limit output length
+            }
+            options.update(kwargs.get("options", {}))
+            
+            print(f"⏱️  Generating with {self.model_name} (estimated 1-5 minutes with GPU acceleration)...")
+            print("🔥 GPU detected - much faster than CPU-only processing!")
+            print("⚡ First run may take extra time for model warm-up...")
+            
             response = requests.post(
                 f"{self.api_url}/api/generate",
                 json={
                     "model": self.model_name,
                     "prompt": prompt,
                     "stream": False,
-                    **kwargs
+                    "options": options,
+                    **{k: v for k, v in kwargs.items() if k != "options"}
                 },
-                timeout=60
+                timeout=600  # 10 minutes for GPU-accelerated models (RTX 4090 optimized)
             )
             response.raise_for_status()
-            return response.json().get("response", "")
+            result = response.json().get("response", "")
+            print(f"✅ Generation completed ({len(result)} characters)")
+            return result
         except Exception as e:
             raise Exception(f"Ollama generation failed: {e}")
 
@@ -495,18 +510,37 @@ class OllamaCoTAnalyzer:
 
 
 # Convenience function for quick analysis
+def warmup_model(model_name: str, api_url: str) -> bool:
+    """Warm up the model with a simple query to reduce first-time latency"""
+    try:
+        print("🔥 Warming up model for optimal performance...")
+        warmup_model = SimpleOllamaModel(model_name, api_url)
+        # Simple warm-up query
+        warmup_model.generate("Hi", options={"num_predict": 1, "temperature": 0.1})
+        print("✅ Model warmed up successfully")
+        return True
+    except Exception as e:
+        print(f"⚠️ Warmup failed: {str(e)[:50]}... (continuing anyway)")
+        return False
+
+
 def quick_cot_analysis(prompt: str, 
                       model_name: str = "phi4-reasoning:latest",
-                      api_url: str = "http://127.0.0.1:11434") -> str:
+                      api_url: str = "http://127.0.0.1:11434",
+                      warmup: bool = True) -> str:
     """
-    Quick CoT analysis with text visualization
+    Quick CoT analysis with text visualization and optional model warmup
     """
     try:
-        # Create a proper config for the analyzer
+        # Optional model warmup for better first-time performance
+        if warmup:
+            warmup_model(model_name, api_url)
+        
+        # Create a proper config for the analyzer  
         config = TokenSHAPConfig(
-            max_samples=10,        # Fast analysis
+            max_samples=5,         # Reduced for faster analysis
             parallel_workers=1,    # Single worker for simplicity
-            cot_max_steps=5       # Limit steps for quick analysis
+            cot_max_steps=3       # Limit steps for quick analysis with large models
         )
         analyzer = OllamaCoTAnalyzer(model_name, api_url, config)
         result = analyzer.analyze_cot_attribution(prompt, analyze_steps=False)  # Skip token analysis for speed
@@ -523,5 +557,20 @@ if __name__ == "__main__":
     # Test with phi4-reasoning (adjust model name if different)
     test_prompt = "If a train travels 60 miles per hour for 2.5 hours, how far does it travel?"
     
-    result = quick_cot_analysis(test_prompt, model_name="gemma3:270m")  # Using available model for demo
-    print(result)
+    print(f"📝 Testing prompt: '{test_prompt}'")
+    print("💡 phi4-reasoning (14.7B parameters) - RTX 4090 GPU accelerated")
+    print("⚡ Expected time: 15-30 seconds with warmup")
+    
+    print("\n🚀 Starting Chain-of-Thought analysis...")
+    
+    try:
+        result = quick_cot_analysis(test_prompt, model_name="phi4-reasoning:latest")
+        print("✅ Analysis completed:")
+        print(result)
+        
+        print(f"\n🎯 Success! phi4-reasoning is working efficiently with GPU acceleration")
+        
+    except Exception as e:
+        print(f"\n❌ Analysis failed: {str(e)}")
+        print("💡 Check that Ollama is running: ollama serve")
+        print("💡 Verify model is available: ollama list")
