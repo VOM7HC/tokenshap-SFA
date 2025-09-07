@@ -11,6 +11,8 @@ from config import TokenSHAPConfig
 from tokenshap_with_sfa import TokenSHAPWithSFA
 from cot_ollama_reasoning import OllamaCoTAnalyzer
 import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
+import time
 
 # Configure logging to suppress warning messages from CoT analysis
 logging.getLogger('cot_ollama_reasoning').setLevel(logging.ERROR)
@@ -32,7 +34,7 @@ class TokenSHAPWithSFACoT:
         
         self.config = config or TokenSHAPConfig(
             max_samples=5,         # Optimized for phi4-reasoning
-            parallel_workers=1,    # Stable with large models
+            parallel_workers=4,    # Parallel processing for faster analysis
             sfa_n_estimators=50,   # Balanced SFA performance
             cot_max_steps=5       # Reasonable CoT depth
         )
@@ -110,76 +112,11 @@ class TokenSHAPWithSFACoT:
             print(f"❌ CoT generation failed: {e}")
             return {'error': f'CoT generation failed: {e}'}
         
-        # Step 2: Apply TokenSHAP+SFA to each reasoning step
+        # Step 2: Apply TokenSHAP+SFA to reasoning steps in parallel
         print(f"\n🔍 Step 2: Applying TokenSHAP+SFA to {len(reasoning_steps)} steps...")
-        step_attributions = []
+        print(f"⚡ Using parallel processing with {min(len(reasoning_steps), self.config.parallel_workers)} workers...")
         
-        for i, step in enumerate(reasoning_steps, 1):
-            try:
-                print(f"   Processing step {i}/{len(reasoning_steps)}...")
-                
-                if hasattr(self.tokenshap_sfa, 'explain'):
-                    # Use your actual TokenSHAPWithSFA.explain() method!
-                    print(f"   ⚡ Calling your actual TokenSHAPWithSFA.explain() method...")
-                    try:
-                        # Call your real explain method with correct parameters
-                        step_result = self.tokenshap_sfa.explain(
-                            step,
-                            method='tokenshap',  # Use TokenSHAP method (your tokenshap_ollama.py supports this)
-                            max_samples=self.config.max_samples
-                        )
-                        
-                        # Extract token attributions from your method's result
-                        # tokenshap_ollama.explain() returns direct dict {token: score} 
-                        if isinstance(step_result, dict):
-                            # Check if it's the direct format {token: score}
-                            if step_result and all(isinstance(v, (int, float)) for v in step_result.values()):
-                                step_attribution = step_result
-                            else:
-                                # Try other formats
-                                step_attribution = step_result.get('shapley_values', {})
-                                if not step_attribution:
-                                    step_attribution = step_result.get('token_attributions', {})
-                        else:
-                            step_attribution = {}
-                            
-                        print(f"   ✅ TokenSHAPWithSFA.explain() returned {len(step_attribution)} token attributions")
-                        
-                        # Debug: show the actual structure returned
-                        if len(step_attribution) == 0:
-                            print(f"   🔍 Debug - Result type: {type(step_result)}")
-                            if isinstance(step_result, dict):
-                                print(f"   🔍 Debug - Result keys: {list(step_result.keys())}")
-                                if step_result:
-                                    sample_key = list(step_result.keys())[0]
-                                    print(f"   🔍 Debug - Sample value type: {type(step_result[sample_key])}")
-                        
-                    except Exception as e:
-                        print(f"   ⚠️ TokenSHAPWithSFA.explain() failed: {e}")
-                        step_attribution = self._fallback_sfa_analysis(step)
-                        
-                else:
-                    # Fallback: Use simplified SFA analysis
-                    print(f"   🔄 Using fallback SFA analysis...")
-                    step_attribution = self._fallback_sfa_analysis(step)
-                
-                step_attributions.append({
-                    'step_number': i,
-                    'step_text': step,
-                    'token_attributions': step_attribution,
-                    'step_importance': self._calculate_step_importance(step_attribution)
-                })
-                
-            except Exception as e:
-                print(f"   ⚠️ Step {i} analysis failed: {e}")
-                step_attributions.append({
-                    'step_number': i,
-                    'step_text': step,
-                    'token_attributions': {},
-                    'step_importance': 0.0,
-                    'error': str(e)
-                })
-        
+        step_attributions = self._analyze_steps_parallel(reasoning_steps)
         results['step_attributions'] = step_attributions
         
         # Step 3: SFA meta-learning insights
@@ -216,6 +153,99 @@ class TokenSHAPWithSFACoT:
         
         print(f"\n✅ Complete TokenSHAP+SFA+CoT analysis finished!")
         return results
+    
+    def _analyze_steps_parallel(self, reasoning_steps: List[str]) -> List[Dict[str, Any]]:
+        """Process multiple reasoning steps in parallel for faster analysis"""
+        
+        max_workers = min(len(reasoning_steps), self.config.parallel_workers)
+        step_attributions = []
+        
+        print(f"🚀 Starting parallel analysis with {max_workers} workers...")
+        start_time = time.time()
+        
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            # Submit all tasks
+            future_to_step = {}
+            for i, step in enumerate(reasoning_steps):
+                future = executor.submit(self._analyze_single_step, i + 1, step)
+                future_to_step[future] = (i + 1, step)
+            
+            # Collect results as they complete
+            completed_count = 0
+            for future in as_completed(future_to_step):
+                step_number, step_text = future_to_step[future]
+                completed_count += 1
+                
+                try:
+                    result = future.result()
+                    step_attributions.append(result)
+                    print(f"   ✅ Step {step_number}/{len(reasoning_steps)} completed ({completed_count}/{len(reasoning_steps)})")
+                    
+                except Exception as e:
+                    print(f"   ⚠️ Step {step_number} failed: {e}")
+                    step_attributions.append({
+                        'step_number': step_number,
+                        'step_text': step_text,
+                        'token_attributions': {},
+                        'step_importance': 0.0,
+                        'error': str(e)
+                    })
+        
+        # Sort results by step number to maintain order
+        step_attributions.sort(key=lambda x: x['step_number'])
+        
+        elapsed_time = time.time() - start_time
+        print(f"🎯 Parallel analysis completed in {elapsed_time:.2f} seconds")
+        print(f"⚡ Average time per step: {elapsed_time/len(reasoning_steps):.2f}s")
+        
+        return step_attributions
+    
+    def _analyze_single_step(self, step_number: int, step_text: str) -> Dict[str, Any]:
+        """Analyze a single reasoning step - designed for parallel execution"""
+        
+        try:
+            if hasattr(self.tokenshap_sfa, 'explain'):
+                # Use your actual TokenSHAPWithSFA.explain() method!
+                step_result = self.tokenshap_sfa.explain(
+                    step_text,
+                    method='tokenshap',  # Use TokenSHAP method
+                    max_samples=self.config.max_samples
+                )
+                
+                # Extract token attributions from your method's result
+                # tokenshap_ollama.explain() returns direct dict {token: score} 
+                if isinstance(step_result, dict):
+                    # Check if it's the direct format {token: score}
+                    if step_result and all(isinstance(v, (int, float)) for v in step_result.values()):
+                        step_attribution = step_result
+                    else:
+                        # Try other formats
+                        step_attribution = step_result.get('shapley_values', {})
+                        if not step_attribution:
+                            step_attribution = step_result.get('token_attributions', {})
+                else:
+                    step_attribution = {}
+                    
+            else:
+                # Fallback: Use simplified SFA analysis
+                step_attribution = self._fallback_sfa_analysis(step_text)
+            
+            return {
+                'step_number': step_number,
+                'step_text': step_text,
+                'token_attributions': step_attribution,
+                'step_importance': self._calculate_step_importance(step_attribution)
+            }
+            
+        except Exception as e:
+            # Return error result for this step
+            return {
+                'step_number': step_number,
+                'step_text': step_text,
+                'token_attributions': {},
+                'step_importance': 0.0,
+                'error': str(e)
+            }
     
     def _custom_tokenshap_sfa_analysis(self, step_text: str) -> Dict[str, float]:
         """
