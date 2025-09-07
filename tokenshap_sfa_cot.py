@@ -44,16 +44,28 @@ class TokenSHAPWithSFACoT:
         print("🔧 Initializing TokenSHAP with SFA...")
         print("⚡ Setting up Ollama-compatible TokenSHAP+SFA integration...")
         
-        # For demonstration: Initialize TokenSHAP+SFA integration pattern
-        print("✅ TokenSHAP+SFA integration pattern established!")
-        print("💡 Using optimized SFA analysis compatible with your TokenSHAPWithSFA.explain() interface")
+        # Initialize your actual TokenSHAP+SFA implementation
+        print("✅ Initializing your actual TokenSHAPWithSFA.explain() method!")
+        print("💡 Creating TokenSHAP+SFA instance from tokenshap_with_sfa.py")
         
-        # Initialize SFA meta-learner component for efficient analysis
-        from sfa_learner import SFAMetaLearner
-        self.sfa_meta_learner = SFAMetaLearner(self.config)
-        
-        # Mark as using your custom approach (not fallback)
-        self.tokenshap_sfa = "custom_integration"
+        try:
+            # Import your TokenSHAPWithOllama which uses your TokenSHAPWithSFA
+            from tokenshap_ollama import TokenSHAPWithOllama
+            
+            # Initialize your actual implementation
+            self.tokenshap_sfa = TokenSHAPWithOllama(
+                model_name=self.model_name,
+                api_url=self.api_url,
+                config=self.config  # Correctly pass as config parameter
+            )
+            print("✅ Your actual TokenSHAPWithSFA.explain() method is ready!")
+            
+        except Exception as e:
+            print(f"⚠️ Could not initialize TokenSHAPWithOllama: {e}")
+            print("🔄 Using direct TokenSHAPWithSFA with mock components...")
+            
+            # Try direct TokenSHAPWithSFA with compatible components
+            self._initialize_direct_tokenshap_sfa()
         
         # Initialize CoT analyzer
         print("🧠 Initializing CoT analyzer...")
@@ -106,10 +118,46 @@ class TokenSHAPWithSFACoT:
             try:
                 print(f"   Processing step {i}/{len(reasoning_steps)}...")
                 
-                if self.tokenshap_sfa == "custom_integration":
-                    # Use your custom TokenSHAP+SFA integration pattern
-                    print(f"   ⚡ Using TokenSHAP+SFA custom integration...")
-                    step_attribution = self._custom_tokenshap_sfa_analysis(step)
+                if hasattr(self.tokenshap_sfa, 'explain'):
+                    # Use your actual TokenSHAPWithSFA.explain() method!
+                    print(f"   ⚡ Calling your actual TokenSHAPWithSFA.explain() method...")
+                    try:
+                        # Call your real explain method with correct parameters
+                        step_result = self.tokenshap_sfa.explain(
+                            step,
+                            method='tokenshap',  # Use TokenSHAP method (your tokenshap_ollama.py supports this)
+                            max_samples=self.config.max_samples
+                        )
+                        
+                        # Extract token attributions from your method's result
+                        # tokenshap_ollama.explain() returns direct dict {token: score} 
+                        if isinstance(step_result, dict):
+                            # Check if it's the direct format {token: score}
+                            if step_result and all(isinstance(v, (int, float)) for v in step_result.values()):
+                                step_attribution = step_result
+                            else:
+                                # Try other formats
+                                step_attribution = step_result.get('shapley_values', {})
+                                if not step_attribution:
+                                    step_attribution = step_result.get('token_attributions', {})
+                        else:
+                            step_attribution = {}
+                            
+                        print(f"   ✅ TokenSHAPWithSFA.explain() returned {len(step_attribution)} token attributions")
+                        
+                        # Debug: show the actual structure returned
+                        if len(step_attribution) == 0:
+                            print(f"   🔍 Debug - Result type: {type(step_result)}")
+                            if isinstance(step_result, dict):
+                                print(f"   🔍 Debug - Result keys: {list(step_result.keys())}")
+                                if step_result:
+                                    sample_key = list(step_result.keys())[0]
+                                    print(f"   🔍 Debug - Sample value type: {type(step_result[sample_key])}")
+                        
+                    except Exception as e:
+                        print(f"   ⚠️ TokenSHAPWithSFA.explain() failed: {e}")
+                        step_attribution = self._fallback_sfa_analysis(step)
+                        
                 else:
                     # Fallback: Use simplified SFA analysis
                     print(f"   🔄 Using fallback SFA analysis...")
@@ -443,6 +491,69 @@ class TokenSHAPWithSFACoT:
         
         return self.analyze_with_cot_and_sfa(prompt)
     
+    def _initialize_direct_tokenshap_sfa(self):
+        """Initialize TokenSHAPWithSFA directly with mock components as fallback"""
+        try:
+            # Create mock model and tokenizer for TokenSHAPWithSFA
+            from ollama_integration import create_ollama_model, OllamaModelAdapter
+            
+            ollama_model = create_ollama_model(self.model_name, self.api_url, simple=True)
+            model_adapter = OllamaModelAdapter(ollama_model)
+            
+            # Create comprehensive tokenizer
+            class HFCompatibleTokenizer:
+                def __init__(self):
+                    self.vocab_size = 50000
+                    self.pad_token_id = 0
+                    self.eos_token_id = 1
+                    self.bos_token_id = 2
+                
+                def tokenize(self, text: str):
+                    return text.split()
+                
+                def encode(self, text: str, *args, **kwargs):
+                    return list(range(len(self.tokenize(text))))
+                
+                def decode(self, token_ids, *args, **kwargs):
+                    if isinstance(token_ids, list):
+                        return f"decoded_text_{len(token_ids)}_tokens"
+                    return str(token_ids)
+                
+                def convert_tokens_to_ids(self, tokens):
+                    return list(range(len(tokens)))
+                
+                def convert_ids_to_tokens(self, ids):
+                    return [f"token_{i}" for i in ids]
+                
+                def convert_tokens_to_string(self, tokens):
+                    return " ".join(str(t) for t in tokens)
+                
+                def __call__(self, text, return_tensors=None, **kwargs):
+                    import torch
+                    tokens = self.tokenize(text)
+                    input_ids = self.convert_tokens_to_ids(tokens)
+                    
+                    if return_tensors == "pt":
+                        return {
+                            'input_ids': torch.tensor([input_ids]),
+                            'attention_mask': torch.tensor([[1] * len(input_ids)])
+                        }
+                    return {'input_ids': input_ids, 'attention_mask': [1] * len(input_ids)}
+            
+            tokenizer = HFCompatibleTokenizer()
+            
+            # Initialize your TokenSHAPWithSFA directly
+            self.tokenshap_sfa = TokenSHAPWithSFA(
+                model=model_adapter,
+                tokenizer=tokenizer,
+                config=self.config
+            )
+            print("✅ Direct TokenSHAPWithSFA initialized successfully!")
+            
+        except Exception as e:
+            print(f"⚠️ Direct TokenSHAPWithSFA initialization failed: {e}")
+            self.tokenshap_sfa = None
+    
     def _create_ollama_tokenshap_sfa(self) -> 'TokenSHAPWithSFA':
         """Create Ollama-compatible TokenSHAP+SFA instance"""
         from ollama_integration import create_ollama_model, OllamaModelAdapter
@@ -535,6 +646,8 @@ class TokenSHAPWithSFACoT:
 if __name__ == "__main__":
     print("🧠 TokenSHAP with SFA + CoT Integration Demo")
     print("=" * 50)
+    
+    # BUG FIXED! Parameter passing corrected in TokenSHAPWithOllama calls
     
     try:
         # Initialize the integrated analyzer
