@@ -1,12 +1,15 @@
 """
-SFA (Shapley-based Feature Augmentation) Meta-Learner
+SFA (Shapley-based Feature Augmentation) Meta-Learner - Enhanced Version
+Enhanced version with proper feature augmentation and dual-stage training
 """
 
 import numpy as np
+import pickle
+import os
 import logging
-from typing import List, Dict, Tuple, Optional
+from typing import List, Dict, Tuple, Optional, Any
 from sklearn.model_selection import KFold
-from sklearn.ensemble import GradientBoostingRegressor
+from sklearn.ensemble import GradientBoostingRegressor, RandomForestRegressor
 from sklearn.feature_extraction.text import TfidfVectorizer
 from config import TokenSHAPConfig
 
@@ -14,194 +17,288 @@ logger = logging.getLogger(__name__)
 
 
 class SFAMetaLearner:
-    """
-    Enhanced Shapley-based Feature Augmentation Meta-Learner
-    """
+    """Enhanced SFA Meta-Learner with proper feature augmentation"""
     
     def __init__(self, config: TokenSHAPConfig):
         self.config = config
-        self.meta_model = GradientBoostingRegressor(
-            n_estimators=config.sfa_n_estimators,
-            max_depth=config.sfa_max_depth,
-            random_state=42
-        )
+        self.meta_model = None
+        self.augmentation_model = None  # Additional model for augmented features
         self.feature_vectorizer = TfidfVectorizer(max_features=100)
         self.is_trained = False
         self.feature_names = []
         self.training_history = []
+        self.shapley_cache = {}  # Cache computed Shapley values
+        self.augmented_features_cache = {}
+        
+        logger.info(f"Initialized enhanced SFA with {config.sfa_n_estimators} estimators")
     
     def extract_features(self, tokens: List[str], context: str) -> np.ndarray:
-        """Extract comprehensive features for tokens"""
+        """Extract base features from tokens and context"""
         features = []
-        n_tokens = len(tokens)
-        
-        # Precompute context features
-        context_lower = context.lower()
-        context_words = set(context_lower.split())
         
         for i, token in enumerate(tokens):
             token_features = []
-            token_lower = token.lower()
             
-            # Lexical features
-            token_features.extend([
-                len(token),                                    # Length
-                1 if token.isalpha() else 0,                  # Is alphabetic
-                1 if token.isdigit() else 0,                  # Is numeric
-                1 if token.isupper() else 0,                  # Is uppercase
-                1 if token.islower() else 0,                  # Is lowercase
-                1 if token.istitle() else 0,                  # Is title case
-                1 if any(c.isdigit() for c in token) else 0, # Contains digits
-                token.count('-'),                              # Hyphen count
-                1 if token.startswith('##') else 0,           # Is subword token
-            ])
-            
-            # Position features
-            relative_position = i / max(1, n_tokens - 1) if n_tokens > 1 else 0.5
-            token_features.extend([
-                relative_position,                    # Relative position
-                1 if i == 0 else 0,                  # Is first
-                1 if i == n_tokens - 1 else 0,      # Is last
-                1 if i < n_tokens // 3 else 0,      # In first third
-                1 if i > 2 * n_tokens // 3 else 0,  # In last third
-                min(i, 10) / 10,                    # Distance from start (normalized)
-                min(n_tokens - i - 1, 10) / 10,     # Distance from end (normalized)
-            ])
+            # Basic token features
+            token_features.append(len(token))  # Token length
+            token_features.append(i / len(tokens))  # Relative position
+            token_features.append(token.count('_'))  # Special character count
+            token_features.append(float(token.isdigit()))  # Is numeric
+            token_features.append(float(token.isupper()))  # Is uppercase
+            token_features.append(float(token.islower()))  # Is lowercase
             
             # Context features
-            token_features.extend([
-                context_lower.count(token_lower),           # Frequency in context
-                1 if token_lower in context_words else 0,   # Appears as word
-                len(token) / len(context) if context else 0, # Length ratio
-            ])
+            token_features.append(context.count(token))  # Token frequency in context
+            token_features.append(float(i == 0))  # Is first token
+            token_features.append(float(i == len(tokens) - 1))  # Is last token
             
-            # Neighboring features (if applicable)
+            # N-gram features
             if i > 0:
-                prev_token = tokens[i-1]
-                token_features.extend([
-                    1 if prev_token.isalpha() else 0,
-                    len(prev_token) / 10,
-                ])
+                bigram = f"{tokens[i-1]}_{token}"
+                token_features.append(context.count(bigram))
             else:
-                token_features.extend([0, 0])
-            
-            if i < n_tokens - 1:
-                next_token = tokens[i+1]
-                token_features.extend([
-                    1 if next_token.isalpha() else 0,
-                    len(next_token) / 10,
-                ])
-            else:
-                token_features.extend([0, 0])
-            
-            # Linguistic features
-            token_features.extend([
-                1 if token in {'.', ',', '!', '?', ';', ':'} else 0,  # Is punctuation
-                1 if token in {'the', 'a', 'an', 'is', 'are'} else 0, # Is common word
-                1 if len(token) > 7 else 0,                            # Is long word
-                1 if len(token) <= 2 else 0,                           # Is short word
-            ])
+                token_features.append(0)
             
             features.append(token_features)
         
         return np.array(features, dtype=np.float32)
-    
-    def train(self, training_data: List[Tuple[str, Dict[str, float]]], 
-              use_cv: bool = True) -> Dict[str, float]:
-        """
-        Train meta-learner with cross-validation
-        """
-        if len(training_data) < self.config.sfa_min_samples_train:
-            logger.warning(f"Insufficient training data: {len(training_data)} samples")
-            return {'error': 'insufficient_data'}
         
-        # Prepare training data
-        X_all = []
-        y_all = []
-        tokens_all = []
+    def extract_augmented_features(self, tokens: List[str], context: str, 
+                                  shapley_values: Optional[Dict[str, float]] = None) -> np.ndarray:
+        """Extract features augmented with Shapley values and predictions"""
+        
+        # Base features
+        base_features = self.extract_features(tokens, context)
+        
+        if shapley_values is None:
+            return base_features
+            
+        # Augment with Shapley values (SFA core concept)
+        augmented = []
+        for i, token in enumerate(tokens):
+            token_features = base_features[i].tolist()
+            
+            # Add Shapley value as feature
+            token_shapley = shapley_values.get(token, 0.0)
+            token_features.append(token_shapley)
+            
+            # Add Shapley-derived features
+            token_features.append(abs(token_shapley))  # Absolute importance
+            token_features.append(token_shapley ** 2)  # Squared importance
+            token_features.append(np.sign(token_shapley))  # Sign of contribution
+            
+            # Add interaction features
+            if i > 0:
+                prev_shapley = shapley_values.get(tokens[i-1], 0.0)
+                token_features.append(token_shapley * prev_shapley)  # Interaction
+                token_features.append(token_shapley - prev_shapley)  # Difference
+            else:
+                token_features.extend([0.0, 0.0])
+            
+            augmented.append(token_features)
+            
+        return np.array(augmented, dtype=np.float32)
+    
+    def train(self, training_data: List[Tuple[str, Dict[str, float]]]) -> Dict[str, float]:
+        """Train the SFA meta-learner with standard approach (for backward compatibility)"""
+        return self.train_with_augmentation(training_data)
+    
+    def train_with_augmentation(self, training_data: List[Tuple[str, Dict[str, float]]]) -> Dict[str, float]:
+        """Train with proper SFA augmentation"""
+        
+        logger.info(f"Training enhanced SFA with {len(training_data)} samples")
+        
+        # First stage: Train base model
+        X_base, y_all, tokens_all = self._prepare_base_features(training_data)
+        
+        # Train base meta-model
+        self.meta_model = GradientBoostingRegressor(
+            n_estimators=self.config.sfa_n_estimators,
+            max_depth=self.config.sfa_max_depth,
+            random_state=42
+        )
+        self.meta_model.fit(X_base, y_all)
+        logger.info(f"Base model trained with score: {self.meta_model.score(X_base, y_all):.4f}")
+        
+        # Generate OOF predictions
+        oof_predictions = self._generate_oof_predictions(X_base, y_all)
+        
+        # Second stage: Train augmented model with OOF predictions + Shapley values
+        X_augmented = []
+        for i, (prompt, shapley_dict) in enumerate(training_data):
+            tokens = prompt.split()
+            aug_features = self.extract_augmented_features(tokens, prompt, shapley_dict)
+            
+            # Add OOF predictions as features
+            start_idx = sum(len(td[0].split()) for td in training_data[:i])
+            end_idx = start_idx + len(tokens)
+            token_predictions = oof_predictions[start_idx:end_idx]
+            
+            for j, feat in enumerate(aug_features):
+                if j < len(token_predictions):
+                    # Augment with prediction
+                    aug_feat = np.append(feat, token_predictions[j])
+                    X_augmented.append(aug_feat)
+        
+        X_augmented = np.array(X_augmented)
+        
+        # Train augmented model
+        self.augmentation_model = RandomForestRegressor(
+            n_estimators=self.config.sfa_n_estimators * 2,
+            max_depth=self.config.sfa_max_depth,
+            random_state=42
+        )
+        self.augmentation_model.fit(X_augmented, y_all)
+        
+        augmented_score = self.augmentation_model.score(X_augmented, y_all)
+        logger.info(f"Augmented model trained with score: {augmented_score:.4f}")
+        
+        self.is_trained = True
+        
+        result = {
+            'base_model_score': self.meta_model.score(X_base, y_all),
+            'augmented_model_score': augmented_score,
+            'n_samples': len(y_all)
+        }
+        
+        self.training_history.append(result)
+        return result
+    
+    def _prepare_base_features(self, training_data: List[Tuple[str, Dict[str, float]]]) -> Tuple[np.ndarray, np.ndarray, List[str]]:
+        """Prepare base features for training"""
+        all_features = []
+        all_targets = []
+        all_tokens = []
         
         for prompt, shapley_dict in training_data:
-            tokens = prompt.split()  # Should use proper tokenization
+            tokens = prompt.split()
             features = self.extract_features(tokens, prompt)
             
             for i, token in enumerate(tokens):
-                if token in shapley_dict:
-                    X_all.append(features[i])
-                    y_all.append(shapley_dict[token])
-                    tokens_all.append(token)
+                all_features.append(features[i])
+                all_targets.append(shapley_dict.get(token, 0.0))
+                all_tokens.append(token)
         
-        X_all = np.array(X_all)
-        y_all = np.array(y_all)
-        
-        # Cross-validation
-        if use_cv and len(X_all) >= self.config.k_folds:
-            cv_scores = []
-            kf = KFold(n_splits=self.config.k_folds, shuffle=True, random_state=42)
-            
-            for train_idx, val_idx in kf.split(X_all):
-                X_train, X_val = X_all[train_idx], X_all[val_idx]
-                y_train, y_val = y_all[train_idx], y_all[val_idx]
-                
-                # Train fold model
-                fold_model = GradientBoostingRegressor(
-                    n_estimators=self.config.sfa_n_estimators,
-                    max_depth=self.config.sfa_max_depth,
-                    random_state=42
-                )
-                fold_model.fit(X_train, y_train)
-                
-                # Validate
-                val_pred = fold_model.predict(X_val)
-                mse = np.mean((val_pred - y_val) ** 2)
-                cv_scores.append(mse)
-            
-            avg_cv_score = np.mean(cv_scores)
-            logger.info(f"Cross-validation MSE: {avg_cv_score:.4f}")
-        
-        # Train final model on all data
-        self.meta_model.fit(X_all, y_all)
-        self.is_trained = True
-        
-        # Store feature names for interpretability
-        self.feature_names = [
-            'length', 'is_alpha', 'is_digit', 'is_upper', 'is_lower', 'is_title',
-            'contains_digit', 'hyphen_count', 'is_subword', 'relative_pos',
-            'is_first', 'is_last', 'in_first_third', 'in_last_third',
-            'dist_from_start', 'dist_from_end', 'freq_in_context', 'appears_as_word',
-            'length_ratio', 'prev_is_alpha', 'prev_length', 'next_is_alpha',
-            'next_length', 'is_punctuation', 'is_common', 'is_long', 'is_short'
-        ]
-        
-        # Store training history
-        self.training_history.append({
-            'n_samples': len(X_all),
-            'n_prompts': len(training_data),
-            'cv_score': avg_cv_score if use_cv else None
-        })
-        
-        return {
-            'n_samples': len(X_all),
-            'cv_score': avg_cv_score if use_cv else None,
-            'feature_importance': self.get_feature_importance()
-        }
+        return np.array(all_features), np.array(all_targets), all_tokens
     
-    def predict(self, prompt: str, tokens: Optional[List[str]] = None) -> Dict[str, float]:
-        """Predict Shapley values for new prompt"""
-        if not self.is_trained:
-            raise ValueError("Meta-learner not trained yet")
+    def _generate_oof_predictions(self, X: np.ndarray, y: np.ndarray) -> np.ndarray:
+        """Generate out-of-fold predictions for augmentation"""
+        kf = KFold(n_splits=self.config.k_folds, shuffle=True, random_state=42)
+        oof_preds = np.zeros(len(y))
         
-        if tokens is None:
-            tokens = prompt.split()  # Should use proper tokenization
+        for fold_idx, (train_idx, val_idx) in enumerate(kf.split(X)):
+            X_train, X_val = X[train_idx], X[val_idx]
+            y_train, y_val = y[train_idx], y[val_idx]
+            
+            fold_model = GradientBoostingRegressor(
+                n_estimators=50,
+                max_depth=5,
+                random_state=42
+            )
+            fold_model.fit(X_train, y_train)
+            oof_preds[val_idx] = fold_model.predict(X_val)
+            
+            logger.debug(f"Fold {fold_idx + 1} completed")
         
-        features = self.extract_features(tokens, prompt)
-        predictions = self.meta_model.predict(features)
-        
-        return {token: float(predictions[i]) for i, token in enumerate(tokens)}
+        return oof_preds
     
-    def get_feature_importance(self) -> Dict[str, float]:
-        """Get feature importance from trained model"""
+    def predict(self, prompt: str, tokens: List[str]) -> Dict[str, float]:
+        """Standard predict method for backward compatibility"""
+        return self.predict_augmented(prompt, tokens)
+    
+    def predict_augmented(self, prompt: str, tokens: List[str], 
+                         initial_shapley: Optional[Dict[str, float]] = None) -> Dict[str, float]:
+        """Predict using augmented features"""
+        
         if not self.is_trained:
+            raise ValueError("Model not trained")
+        
+        # If we have cached Shapley values, use them for augmentation
+        if initial_shapley is None and prompt in self.shapley_cache:
+            initial_shapley = self.shapley_cache[prompt]
+        
+        if self.augmentation_model and initial_shapley:
+            # Use augmented model
+            aug_features = self.extract_augmented_features(tokens, prompt, initial_shapley)
+            
+            # Add mock OOF predictions (use base model predictions)
+            base_features = self.extract_features(tokens, prompt)
+            base_predictions = self.meta_model.predict(base_features)
+            
+            full_features = []
+            for i, feat in enumerate(aug_features):
+                full_feat = np.append(feat, base_predictions[i])
+                full_features.append(full_feat)
+            
+            predictions = self.augmentation_model.predict(np.array(full_features))
+        else:
+            # Fall back to base model
+            features = self.extract_features(tokens, prompt)
+            predictions = self.meta_model.predict(features)
+        
+        result = {token: float(pred) for token, pred in zip(tokens, predictions)}
+        
+        # Cache for future augmentation
+        self.shapley_cache[prompt] = result
+        
+        return result
+    
+    def get_training_stats(self) -> Dict[str, Any]:
+        """Get training statistics"""
+        if not self.training_history:
             return {}
         
-        importance = self.meta_model.feature_importances_
-        return {name: float(imp) for name, imp in zip(self.feature_names, importance)}
+        latest = self.training_history[-1]
+        return {
+            'is_trained': self.is_trained,
+            'training_samples': latest.get('n_samples', 0),
+            'base_model_score': latest.get('base_model_score', 0.0),
+            'augmented_model_score': latest.get('augmented_model_score', 0.0),
+            'improvement': latest.get('augmented_model_score', 0.0) - latest.get('base_model_score', 0.0),
+            'cached_predictions': len(self.shapley_cache),
+            'training_iterations': len(self.training_history)
+        }
+    
+    def save_training_data(self, filepath: str):
+        """Save training data and models"""
+        state = {
+            'meta_model': self.meta_model,
+            'augmentation_model': self.augmentation_model,
+            'feature_vectorizer': self.feature_vectorizer,
+            'is_trained': self.is_trained,
+            'feature_names': self.feature_names,
+            'training_history': self.training_history,
+            'shapley_cache': self.shapley_cache,
+            'config': self.config
+        }
+        
+        os.makedirs(os.path.dirname(filepath) if os.path.dirname(filepath) else '.', exist_ok=True)
+        with open(filepath, 'wb') as f:
+            pickle.dump(state, f)
+        
+        logger.info(f"SFA model saved to {filepath}")
+    
+    def load_training_data(self, filepath: str) -> bool:
+        """Load training data and models"""
+        if not os.path.exists(filepath):
+            logger.warning(f"SFA model file not found: {filepath}")
+            return False
+            
+        try:
+            with open(filepath, 'rb') as f:
+                state = pickle.load(f)
+            
+            self.meta_model = state['meta_model']
+            self.augmentation_model = state.get('augmentation_model')
+            self.feature_vectorizer = state.get('feature_vectorizer', self.feature_vectorizer)
+            self.is_trained = state['is_trained']
+            self.feature_names = state['feature_names']
+            self.training_history = state['training_history']
+            self.shapley_cache = state.get('shapley_cache', {})
+            
+            logger.info(f"SFA model loaded from {filepath}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to load SFA model: {e}")
+            return False

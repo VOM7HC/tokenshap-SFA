@@ -28,9 +28,9 @@ class SimpleOllamaModel:
             }
             options.update(kwargs.get("options", {}))
             
-            print(f"⏱️  Generating with {self.model_name} (estimated 1-5 minutes with GPU acceleration)...")
-            print("🔥 GPU detected - much faster than CPU-only processing!")
-            print("⚡ First run may take extra time for model warm-up...")
+            print(f"  Generating with {self.model_name} (estimated 1-5 minutes with GPU acceleration)...")
+            print(" GPU detected - much faster than CPU-only processing!")
+            print(" First run may take extra time for model warm-up...")
             
             response = requests.post(
                 f"{self.api_url}/api/generate",
@@ -45,7 +45,7 @@ class SimpleOllamaModel:
             )
             response.raise_for_status()
             result = response.json().get("response", "")
-            print(f"✅ Generation completed ({len(result)} characters)")
+            print(f" Generation completed ({len(result)} characters)")
             return result
         except Exception as e:
             raise Exception(f"Ollama generation failed: {e}")
@@ -478,23 +478,23 @@ class OllamaCoTAnalyzer:
         """Create a text-based visualization of the reasoning analysis"""
         
         if 'error' in analysis_result:
-            return f"❌ Analysis Error: {analysis_result['error']}"
+            return f" Analysis Error: {analysis_result['error']}"
         
         viz = []
-        viz.append("🧠 Chain-of-Thought Reasoning Analysis")
+        viz.append(" Chain-of-Thought Reasoning Analysis")
         viz.append("=" * 50)
         
         # Basic info
         metrics = analysis_result.get('metrics', {})
-        viz.append(f"📊 Reasoning Depth: {metrics.get('reasoning_depth', 0)} steps")
-        viz.append(f"🎯 Reasoning Quality: {metrics.get('reasoning_quality', 0.0):.2f}/1.0")
-        viz.append(f"🔗 Chain Coherence: {metrics.get('chain_coherence', 0.0):.2f}")
+        viz.append(f" Reasoning Depth: {metrics.get('reasoning_depth', 0)} steps")
+        viz.append(f" Reasoning Quality: {metrics.get('reasoning_quality', 0.0):.2f}/1.0")
+        viz.append(f" Chain Coherence: {metrics.get('chain_coherence', 0.0):.2f}")
         viz.append("")
         
         # Critical steps
         critical_steps = analysis_result.get('critical_steps', [])
         if critical_steps:
-            viz.append("🎯 Most Critical Reasoning Steps:")
+            viz.append(" Most Critical Reasoning Steps:")
             for i, step_info in enumerate(critical_steps[:3], 1):
                 importance = step_info['importance']
                 preview = step_info['step_preview']
@@ -506,7 +506,7 @@ class OllamaCoTAnalyzer:
         importance = analysis_result.get('step_importance', [])
         
         if steps:
-            viz.append("📝 Step-by-Step Analysis:")
+            viz.append(" Step-by-Step Analysis:")
             for i, (step, imp) in enumerate(zip(steps, importance), 1):
                 # Create importance bar
                 bar_length = int(imp * 20)
@@ -520,7 +520,7 @@ class OllamaCoTAnalyzer:
         # Critical tokens
         critical_tokens = analysis_result.get('critical_tokens', [])
         if critical_tokens:
-            viz.append("🔤 Most Important Tokens Across All Steps:")
+            viz.append(" Most Important Tokens Across All Steps:")
             for i, token_info in enumerate(critical_tokens[:10], 1):
                 token = token_info['token']
                 value = token_info['shapley_value']
@@ -535,14 +535,14 @@ class OllamaCoTAnalyzer:
 def warmup_model(model_name: str, api_url: str) -> bool:
     """Warm up the model with a simple query to reduce first-time latency"""
     try:
-        print("🔥 Warming up model for optimal performance...")
+        print(" Warming up model for optimal performance...")
         warmup_model = SimpleOllamaModel(model_name, api_url)
         # Simple warm-up query
         warmup_model.generate("Hi", options={"num_predict": 1, "temperature": 0.1})
-        print("✅ Model warmed up successfully")
+        print(" Model warmed up successfully")
         return True
     except Exception as e:
-        print(f"⚠️ Warmup failed: {str(e)[:50]}... (continuing anyway)")
+        print(f" Warmup failed: {str(e)[:50]}... (continuing anyway)")
         return False
 
 
@@ -568,7 +568,7 @@ def quick_cot_analysis(prompt: str,
         result = analyzer.analyze_cot_attribution(prompt, analyze_steps=False)  # Skip token analysis for speed
         return analyzer.visualize_reasoning_analysis(result)
     except Exception as e:
-        return f"❌ Analysis failed: {str(e)}"
+        return f" Analysis failed: {str(e)}"
 
 
 # Example usage
@@ -579,20 +579,20 @@ if __name__ == "__main__":
     # Test with phi4-reasoning (adjust model name if different)
     test_prompt = "If a train travels 60 miles per hour for 2.5 hours, how far does it travel?"
     
-    print(f"📝 Testing prompt: '{test_prompt}'")
-    print("💡 phi4-reasoning (14.7B parameters) - RTX 4090 GPU accelerated")
-    print("⚡ Expected time: 15-30 seconds with warmup")
+    print(f" Testing prompt: '{test_prompt}'")
+    print(" phi4-reasoning (14.7B parameters) - RTX 4090 GPU accelerated")
+    print(" Expected time: 15-30 seconds with warmup")
     
-    print("\n🚀 Starting Chain-of-Thought analysis...")
+    print("\n Starting Chain-of-Thought analysis...")
     
     try:
         result = quick_cot_analysis(test_prompt, model_name="phi4-reasoning:latest")
-        print("✅ Analysis completed:")
+        print(" Analysis completed:")
         print(result)
         
-        print(f"\n🎯 Success! phi4-reasoning is working efficiently with GPU acceleration")
+        print(f"\n Success! phi4-reasoning is working efficiently with GPU acceleration")
         
     except Exception as e:
-        print(f"\n❌ Analysis failed: {str(e)}")
-        print("💡 Check that Ollama is running: ollama serve")
-        print("💡 Verify model is available: ollama list")
+        print(f"\n Analysis failed: {str(e)}")
+        print(" Check that Ollama is running: ollama serve")
+        print(" Verify model is available: ollama list")

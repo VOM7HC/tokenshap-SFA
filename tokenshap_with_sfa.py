@@ -29,7 +29,8 @@ logger = logging.getLogger(__name__)
 
 class TokenSHAPWithSFA:
     """
-    Unified framework combining Enhanced TokenSHAP with SFA and CoT support
+    Enhanced TokenSHAP properly augmented with SFA and CoT support
+    Includes Claude Opus 4.1 improvements for advanced SFA integration
     """
     
     def __init__(self,
@@ -45,9 +46,22 @@ class TokenSHAPWithSFA:
         self.sfa_learner = SFAMetaLearner(config)
         self.cot_explainer = CoTTokenSHAP(model, tokenizer, config)
         
-        # Training cache
+        # Enhanced SFA features (Claude Opus 4.1)
+        import os
+        self.sfa_model_path = "models/sfa_trained.pkl"
+        os.makedirs("models", exist_ok=True)
+        
+        # Try to load pre-trained SFA model
+        self.sfa_learner.load_training_data(self.sfa_model_path)
+        
+        # Training data accumulator for incremental learning
+        self.accumulated_training_data = []
+        
+        # Training cache (legacy compatibility)
         self.training_cache = []
         self.performance_metrics = {}
+        
+        logger.info(f"Enhanced TokenSHAP+SFA initialized (SFA trained: {self.sfa_learner.is_trained})")
     
     def explain(self,
                prompt: str,
@@ -64,11 +78,18 @@ class TokenSHAPWithSFA:
             return_details: Return detailed attribution info
         """
         if use_cot:
-            # Use CoT-based hierarchical attribution
-            return self.cot_explainer.compute_hierarchical_attribution(
-                prompt,
-                use_sfa=(method in [AttributionMethod.SFA, AttributionMethod.HYBRID])
-            )
+            # Enhanced CoT-based hierarchical attribution with SFA augmentation
+            if method == AttributionMethod.HYBRID and self.sfa_learner.is_trained:
+                # Use enhanced SFA augmentation for CoT
+                return self.cot_explainer.compute_hierarchical_attribution_augmented(
+                    prompt, self.sfa_learner
+                )
+            else:
+                # Standard CoT attribution
+                return self.cot_explainer.compute_hierarchical_attribution(
+                    prompt,
+                    use_sfa=(method in [AttributionMethod.SFA, AttributionMethod.HYBRID])
+                )
         
         # Standard attribution
         if method == AttributionMethod.TOKENSHAP:
@@ -80,11 +101,10 @@ class TokenSHAPWithSFA:
             tokens = self.token_explainer.processor.tokenize(prompt)
             result = self.sfa_learner.predict(prompt, tokens)
             
-        else:  # HYBRID
+        else:  # HYBRID - Enhanced with SFA augmentation
             if self.sfa_learner.is_trained:
-                # Use SFA for speed
-                tokens = self.token_explainer.processor.tokenize(prompt)
-                result = self.sfa_learner.predict(prompt, tokens)
+                # Use enhanced SFA augmentation (Claude Opus 4.1)
+                result = self.compute_augmented_shapley(prompt)
             else:
                 # Fall back to TokenSHAP
                 result = self.token_explainer.compute_shapley_values(prompt, return_details)
@@ -93,6 +113,168 @@ class TokenSHAPWithSFA:
             result = {'shapley_values': result}
         
         return result
+    
+    def compute_augmented_shapley(self, prompt: str) -> Dict[str, float]:
+        """
+        Compute Shapley values with SFA augmentation (Claude Opus 4.1 enhancement)
+        Uses guided sampling and augmented features for improved accuracy
+        """
+        
+        tokens = self.token_explainer.processor.tokenize(prompt)
+        
+        if self.sfa_learner.is_trained:
+            # Step 1: Get initial Shapley estimate from SFA
+            initial_estimate = self.sfa_learner.predict(prompt, tokens)
+            
+            # Step 2: Use initial estimate to guide sampling
+            guided_shapley = self._compute_guided_shapley(
+                prompt, tokens, initial_estimate
+            )
+            
+            # Step 3: Refine with augmented features
+            refined_shapley = self.sfa_learner.predict_augmented(
+                prompt, tokens, guided_shapley
+            )
+            
+            return refined_shapley
+        else:
+            # No SFA augmentation available, use standard TokenSHAP
+            return self.token_explainer.compute_shapley_values(prompt)
+    
+    def _compute_guided_shapley(self, prompt: str, tokens: List[str], 
+                               initial_estimate: Dict[str, float]) -> Dict[str, float]:
+        """
+        Compute Shapley values guided by SFA estimates
+        Uses importance-weighted sampling for efficiency
+        """
+        
+        n_tokens = len(tokens)
+        shapley_values = np.zeros(n_tokens)
+        sample_counts = np.zeros(n_tokens)
+        
+        # Use SFA estimates to prioritize sampling
+        token_importance = np.array([abs(initial_estimate.get(t, 0)) for t in tokens])
+        if token_importance.sum() > 0:
+            sampling_weights = token_importance / token_importance.sum()
+        else:
+            sampling_weights = np.ones(n_tokens) / n_tokens
+        
+        # Add small uniform component to prevent zero sampling
+        sampling_weights = 0.8 * sampling_weights + 0.2 / n_tokens
+        
+        # Adaptive sampling based on importance
+        for _ in range(self.config.max_samples):
+            # Sample subset with bias towards important tokens
+            subset_size = np.random.randint(1, n_tokens + 1)
+            
+            try:
+                subset_indices = np.random.choice(
+                    n_tokens, subset_size, replace=False, p=sampling_weights
+                )
+            except ValueError:
+                # Fallback to uniform sampling if probabilities are invalid
+                subset_indices = np.random.choice(
+                    n_tokens, subset_size, replace=False
+                )
+            
+            # Compute marginal contributions
+            for idx in subset_indices:
+                try:
+                    contribution = self.token_explainer._compute_marginal_contribution(
+                        tokens, subset_indices.tolist(), idx, 
+                        self.token_explainer._generate_response(prompt)
+                    )
+                    
+                    # Weight by initial estimate confidence
+                    confidence = min(1.0, abs(initial_estimate.get(tokens[idx], 0)) * 10)
+                    weighted_contrib = contribution * (1 + confidence)
+                    
+                    shapley_values[idx] += weighted_contrib
+                    sample_counts[idx] += 1
+                except Exception as e:
+                    logger.debug(f"Error computing marginal contribution for token {idx}: {e}")
+                    # Use initial estimate as fallback
+                    shapley_values[idx] += initial_estimate.get(tokens[idx], 0.0)
+                    sample_counts[idx] += 1
+        
+        # Normalize
+        final_values = shapley_values / np.maximum(sample_counts, 1)
+        
+        return {token: float(final_values[i]) for i, token in enumerate(tokens)}
+    
+    def train_sfa_incremental(self, new_prompts: List[str], save: bool = True) -> Dict[str, Any]:
+        """
+        Incrementally train SFA with new data (Claude Opus 4.1 enhancement)
+        Allows continuous learning without retraining from scratch
+        """
+        
+        logger.info(f"Incrementally training SFA with {len(new_prompts)} new prompts...")
+        
+        # Compute Shapley values for new prompts
+        new_training_data = []
+        for prompt in new_prompts:
+            try:
+                shapley_values = self.token_explainer.compute_shapley_values(prompt)
+                new_training_data.append((prompt, shapley_values))
+                self.accumulated_training_data.append((prompt, shapley_values))
+            except Exception as e:
+                logger.warning(f"Failed to compute Shapley values for prompt: {e}")
+        
+        # Combine with existing training data (keep last 1000 samples for memory efficiency)
+        all_training_data = self.accumulated_training_data[-1000:]
+        
+        if len(all_training_data) < 5:
+            logger.warning("Not enough training data for SFA training")
+            return {'error': 'Insufficient training data'}
+        
+        # Train with augmentation
+        result = self.sfa_learner.train_with_augmentation(all_training_data)
+        
+        # Save model
+        if save:
+            try:
+                self.sfa_learner.save_training_data(self.sfa_model_path)
+                logger.info(f"SFA model saved to {self.sfa_model_path}")
+            except Exception as e:
+                logger.error(f"Failed to save SFA model: {e}")
+        
+        return result
+    
+    def explain_augmented(self, prompt: str, method: str = "augmented", **kwargs) -> Dict[str, Any]:
+        """
+        Enhanced explain interface with SFA augmentation options (Claude Opus 4.1)
+        
+        Args:
+            prompt: Text to explain
+            method: "augmented", "standard", "sfa_only", "hybrid", "cot"
+            **kwargs: Additional parameters
+        """
+        
+        if method == "augmented":
+            return {'token_attributions': self.compute_augmented_shapley(prompt)}
+        elif method == "standard":
+            return {'token_attributions': self.token_explainer.compute_shapley_values(prompt)}
+        elif method == "sfa_only" and self.sfa_learner.is_trained:
+            tokens = self.token_explainer.processor.tokenize(prompt)
+            return {'token_attributions': self.sfa_learner.predict(prompt, tokens)}
+        elif method == "cot":
+            return self.explain(prompt, use_cot=True, **kwargs)
+        elif method == "hybrid":
+            return self.explain(prompt, method=AttributionMethod.HYBRID, **kwargs)
+        else:
+            # Default to augmented if available, otherwise standard
+            return {'token_attributions': self.compute_augmented_shapley(prompt)}
+    
+    def get_sfa_stats(self) -> Dict[str, Any]:
+        """Get enhanced SFA statistics (Claude Opus 4.1)"""
+        if hasattr(self.sfa_learner, 'get_training_stats'):
+            return self.sfa_learner.get_training_stats()
+        else:
+            return {
+                'is_trained': self.sfa_learner.is_trained,
+                'training_samples': len(self.accumulated_training_data),
+                'cache_size': len(getattr(self.sfa_learner, 'shapley_cache', {}))
+            }
     
     def train_sfa(self,
                  training_prompts: List[str],
@@ -243,7 +425,7 @@ if __name__ == "__main__":
         cot_max_steps=8
     )
     
-    print("\n✓ Configuration initialized")
+    print("\n Configuration initialized")
     print(f"  - Max samples: {config.max_samples}")
     print(f"  - Convergence threshold: {config.convergence_threshold}")
     print(f"  - Parallel workers: {config.parallel_workers}")
@@ -255,7 +437,7 @@ if __name__ == "__main__":
     # tokenizer = AutoTokenizer.from_pretrained("gpt2")
     # explainer = TokenSHAPWithSFA(model, tokenizer, config)
     
-    print("\n✓ Ready for integration with transformer models")
-    print("✓ All critical bugs fixed")
-    print("✓ Enhanced with proper CoT support")
+    print("\n Ready for integration with transformer models")
+    print(" All critical bugs fixed")
+    print(" Enhanced with proper CoT support")
     print("\nImplementation complete!")

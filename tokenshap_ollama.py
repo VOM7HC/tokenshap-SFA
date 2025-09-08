@@ -385,12 +385,12 @@ if __name__ == "__main__":
     
     for model_config in models_to_test:
         print(f"\nTesting model: {model_config['name']}")
-        print("💡 phi4-reasoning (14.7B parameters) - GPU accelerated")
-        print("⏰ Expected time: 1-2 minutes with warmup")
+        print(" phi4-reasoning (14.7B parameters) - GPU accelerated")
+        print(" Expected time: 1-2 minutes with warmup")
         
         try:
             # Initialize explainer with phi4-reasoning optimizations
-            print("🔄 Initializing TokenSHAP with phi4-reasoning...")
+            print(" Initializing TokenSHAP with phi4-reasoning...")
             explainer = TokenSHAPWithOllama(
                 model_name=model_config["name"],
                 api_url=model_config["url"],
@@ -403,22 +403,22 @@ if __name__ == "__main__":
             
             # Test explanation
             test_prompt = "The quick brown fox jumps over the lazy dog."
-            print(f"⚡ Analyzing: '{test_prompt}'")
-            print("🔄 Processing with phi4-reasoning (please be patient)...")
+            print(f" Analyzing: '{test_prompt}'")
+            print(" Processing with phi4-reasoning (please be patient)...")
             
             result = explainer.explain(test_prompt)
             
-            print("✅ Analysis completed!")
-            print("📊 Top tokens by importance:")
+            print(" Analysis completed!")
+            print(" Top tokens by importance:")
             sorted_tokens = sorted(result.items(), key=lambda x: abs(x[1]), reverse=True)
             for token, importance in sorted_tokens[:5]:
                 print(f"  {token}: {importance:.4f}")
                 
         except Exception as e:
-            print(f"❌ Error with {model_config['name']}: {str(e)}")
+            print(f" Error with {model_config['name']}: {str(e)}")
             if "timeout" in str(e).lower():
-                print("💡 phi4-reasoning timed out - this is normal for large models")
+                print(" phi4-reasoning timed out - this is normal for large models")
             else:
-                print("💡 Make sure Ollama is running and model is available")
+                print(" Make sure Ollama is running and model is available")
     
-    print("\n✓ Example completed!")
+    print("\n Example completed!")

@@ -43,16 +43,26 @@ class TokenSHAPWithSFACoT:
         self.api_url = api_url
         
         # Initialize your custom TokenSHAP+SFA implementation
-        print("🔧 Initializing TokenSHAP with SFA...")
-        print("⚡ Setting up Ollama-compatible TokenSHAP+SFA integration...")
+        print(" Initializing TokenSHAP with SFA...")
+        print(" Setting up Ollama-compatible TokenSHAP+SFA integration...")
         
-        # Initialize your actual TokenSHAP+SFA implementation
-        print("✅ Initializing your actual TokenSHAPWithSFA.explain() method!")
-        print("💡 Creating TokenSHAP+SFA instance from tokenshap_with_sfa.py")
+        # Initialize your actual TokenSHAP+SFA implementation with trained data
+        print(" Initializing your actual TokenSHAPWithSFA.explain() method!")
+        print(" Loading pre-trained SFA data for enhanced analysis...")
         
         try:
             # Import your TokenSHAPWithOllama which uses your TokenSHAPWithSFA
             from tokenshap_ollama import TokenSHAPWithOllama
+            import os
+            
+            # Check if we have trained SFA data
+            sfa_model_path = "models/sfa_trained.pkl"
+            if os.path.exists(sfa_model_path):
+                print(f" Found pre-trained SFA model at: {sfa_model_path}")
+                print(" Using trained SFA data instead of heuristics!")
+            else:
+                print(" No pre-trained SFA found - will use fallback methods")
+                print(" Run 'python auto_train_sfa.py' to train SFA for better performance")
             
             # Initialize your actual implementation
             self.tokenshap_sfa = TokenSHAPWithOllama(
@@ -60,17 +70,28 @@ class TokenSHAPWithSFACoT:
                 api_url=self.api_url,
                 config=self.config  # Correctly pass as config parameter
             )
-            print("✅ Your actual TokenSHAPWithSFA.explain() method is ready!")
+            
+            # Check SFA training status
+            if hasattr(self.tokenshap_sfa, 'sfa_learner'):
+                sfa_stats = self.tokenshap_sfa.sfa_learner.get_training_stats()
+                if sfa_stats.get('is_trained', False):
+                    print(f" SFA trained with {sfa_stats.get('training_samples', 0)} samples!")
+                    print(f" Augmented model score: {sfa_stats.get('augmented_model_score', 0):.4f}")
+                    print(f" SFA improvement: {sfa_stats.get('improvement', 0):.4f}")
+                else:
+                    print(" SFA not trained - using standard TokenSHAP methods")
+            
+            print(" Your actual TokenSHAPWithSFA.explain() method is ready!")
             
         except Exception as e:
-            print(f"⚠️ Could not initialize TokenSHAPWithOllama: {e}")
-            print("🔄 Using direct TokenSHAPWithSFA with mock components...")
+            print(f" Could not initialize TokenSHAPWithOllama: {e}")
+            print(" Using direct TokenSHAPWithSFA with mock components...")
             
             # Try direct TokenSHAPWithSFA with compatible components
             self._initialize_direct_tokenshap_sfa()
         
         # Initialize CoT analyzer
-        print("🧠 Initializing CoT analyzer...")
+        print(" Initializing CoT analyzer...")
         self.cot_analyzer = OllamaCoTAnalyzer(
             model_name=model_name,
             api_url=api_url,
@@ -88,13 +109,13 @@ class TokenSHAPWithSFACoT:
         4. Hierarchical step analysis
         """
         
-        print(f"⚡ Starting comprehensive TokenSHAP+SFA+CoT analysis...")
-        print(f"📝 Prompt: '{prompt}'")
+        print(f" Starting comprehensive TokenSHAP+SFA+CoT analysis...")
+        print(f" Prompt: '{prompt}'")
         
         results = {}
         
         # Step 1: Generate CoT reasoning with phi4-reasoning
-        print("\n🧠 Step 1: Generating Chain-of-Thought reasoning...")
+        print("\n Step 1: Generating Chain-of-Thought reasoning...")
         try:
             cot_result = self.cot_analyzer.analyze_cot_attribution(
                 prompt, 
@@ -103,24 +124,24 @@ class TokenSHAPWithSFACoT:
             )
             
             reasoning_steps = cot_result.get('reasoning_steps', [])
-            print(f"✅ Generated {len(reasoning_steps)} reasoning steps")
+            print(f" Generated {len(reasoning_steps)} reasoning steps")
             
             results['cot_analysis'] = cot_result
             results['reasoning_steps'] = reasoning_steps
             
         except Exception as e:
-            print(f"❌ CoT generation failed: {e}")
+            print(f" CoT generation failed: {e}")
             return {'error': f'CoT generation failed: {e}'}
         
         # Step 2: Apply TokenSHAP+SFA to reasoning steps in parallel
-        print(f"\n🔍 Step 2: Applying TokenSHAP+SFA to {len(reasoning_steps)} steps...")
-        print(f"⚡ Using parallel processing with {min(len(reasoning_steps), self.config.parallel_workers)} workers...")
+        print(f"\n Step 2: Applying TokenSHAP+SFA to {len(reasoning_steps)} steps...")
+        print(f" Using parallel processing with {min(len(reasoning_steps), self.config.parallel_workers)} workers...")
         
         step_attributions = self._analyze_steps_parallel(reasoning_steps)
         results['step_attributions'] = step_attributions
         
-        # Step 3: SFA meta-learning insights
-        print(f"\n🎯 Step 3: Generating SFA meta-learning insights...")
+        # Step 3: Enhanced SFA meta-learning insights
+        print(f"\n Step 3: Generating enhanced SFA meta-learning insights...")
         try:
             # Use SFA to find patterns across steps
             all_attributions = []
@@ -136,22 +157,52 @@ class TokenSHAPWithSFACoT:
                     'attribution_variance': self._calculate_variance(all_attributions),
                     'total_tokens_analyzed': len(all_attributions)
                 }
+                
+                # Add enhanced SFA statistics if available
+                if hasattr(self.tokenshap_sfa, 'sfa_learner') and hasattr(self.tokenshap_sfa.sfa_learner, 'get_training_stats'):
+                    sfa_stats = self.tokenshap_sfa.sfa_learner.get_training_stats()
+                    if sfa_stats and sfa_stats.get('is_trained', False):
+                        sfa_insights['sfa_model_stats'] = sfa_stats
+                        print(f" Using Pre-Trained SFA Model (not heuristics):")
+                        print(f"    Trained: {sfa_stats.get('is_trained', False)}")
+                        print(f"    Training samples: {sfa_stats.get('training_samples', 0)}")
+                        print(f"    Base model score: {sfa_stats.get('base_model_score', 0.0):.4f}")
+                        print(f"    Augmented model score: {sfa_stats.get('augmented_model_score', 0.0):.4f}")
+                        print(f"    SFA improvement: {sfa_stats.get('improvement', 0.0):.4f}")
+                        print(f"    Cached predictions: {sfa_stats.get('cached_predictions', 0)}")
+                        print(f"    Training iterations: {sfa_stats.get('training_iterations', 0)}")
+                        
+                        sfa_insights['data_source'] = 'pre_trained'
+                        sfa_insights['data_quality'] = 'high' if sfa_stats.get('improvement', 0) > 0.1 else 'moderate'
+                    else:
+                        print(f" Using Heuristic SFA Analysis:")
+                        print(f"    No pre-trained SFA model found")
+                        print(f"    Run 'python auto_train_sfa.py' for better accuracy")
+                        sfa_insights['data_source'] = 'heuristic'
+                        sfa_insights['data_quality'] = 'basic'
+                
                 results['sfa_insights'] = sfa_insights
-                print(f"✅ SFA analyzed {len(all_attributions)} token attributions")
+                
+                # Enhanced completion message
+                data_source = sfa_insights.get('data_source', 'unknown')
+                if data_source == 'pre_trained':
+                    print(f" Enhanced SFA analyzed {len(all_attributions)} token attributions using trained data!")
+                else:
+                    print(f" SFA analyzed {len(all_attributions)} token attributions using heuristic methods")
         
         except Exception as e:
-            print(f"⚠️ SFA insights generation failed: {e}")
+            print(f" SFA insights generation failed: {e}")
             results['sfa_insights'] = {'error': str(e)}
         
         # Step 4: Overall analysis summary
-        print(f"\n📊 Step 4: Generating comprehensive summary...")
+        print(f"\n Step 4: Generating comprehensive summary...")
         results['summary'] = self._generate_analysis_summary(results)
         
         # Step 5: Detailed step importance analysis and comparison
-        print(f"\n📋 Step 5: Detailed Step Analysis & Quality Assessment...")
+        print(f"\n Step 5: Detailed Step Analysis & Quality Assessment...")
         self._display_detailed_step_analysis(results)
         
-        print(f"\n✅ Complete TokenSHAP+SFA+CoT analysis finished!")
+        print(f"\n Complete TokenSHAP+SFA+CoT analysis finished!")
         return results
     
     def _analyze_steps_parallel(self, reasoning_steps: List[str]) -> List[Dict[str, Any]]:
@@ -160,7 +211,7 @@ class TokenSHAPWithSFACoT:
         max_workers = min(len(reasoning_steps), self.config.parallel_workers)
         step_attributions = []
         
-        print(f"🚀 Starting parallel analysis with {max_workers} workers...")
+        print(f" Starting parallel analysis with {max_workers} workers...")
         start_time = time.time()
         
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
@@ -179,10 +230,10 @@ class TokenSHAPWithSFACoT:
                 try:
                     result = future.result()
                     step_attributions.append(result)
-                    print(f"   ✅ Step {step_number}/{len(reasoning_steps)} completed ({completed_count}/{len(reasoning_steps)})")
+                    print(f"    Step {step_number}/{len(reasoning_steps)} completed ({completed_count}/{len(reasoning_steps)})")
                     
                 except Exception as e:
-                    print(f"   ⚠️ Step {step_number} failed: {e}")
+                    print(f"    Step {step_number} failed: {e}")
                     step_attributions.append({
                         'step_number': step_number,
                         'step_text': step_text,
@@ -195,8 +246,8 @@ class TokenSHAPWithSFACoT:
         step_attributions.sort(key=lambda x: x['step_number'])
         
         elapsed_time = time.time() - start_time
-        print(f"🎯 Parallel analysis completed in {elapsed_time:.2f} seconds")
-        print(f"⚡ Average time per step: {elapsed_time/len(reasoning_steps):.2f}s")
+        print(f" Parallel analysis completed in {elapsed_time:.2f} seconds")
+        print(f" Average time per step: {elapsed_time/len(reasoning_steps):.2f}s")
         
         return step_attributions
     
@@ -289,13 +340,13 @@ class TokenSHAPWithSFACoT:
         """Display detailed step-by-step analysis with importance scores and quality assessment"""
         
         if 'step_attributions' not in results:
-            print("   ⚠️ No step attribution data available")
+            print("    No step attribution data available")
             return
         
         step_attributions = results['step_attributions']
         reasoning_steps = results.get('reasoning_steps', [])
         
-        print(f"\n🔍 Individual Step Analysis:")
+        print(f"\n Individual Step Analysis:")
         print(f"{'=' * 80}")
         
         # Quality thresholds for comparison
@@ -310,38 +361,38 @@ class TokenSHAPWithSFACoT:
             
             # Quality assessment
             if step_importance >= excellent_threshold:
-                quality_icon = "🌟"
+                quality_icon = ""
                 quality_level = "EXCELLENT"
                 quality_color = "🟢"
             elif step_importance >= good_threshold:
-                quality_icon = "⭐"
+                quality_icon = ""
                 quality_level = "GOOD"
                 quality_color = "🟡"
             elif step_importance >= fair_threshold:
-                quality_icon = "✨"
+                quality_icon = ""
                 quality_level = "FAIR"
                 quality_color = "🟠"
             else:
-                quality_icon = "💫"
+                quality_icon = ""
                 quality_level = "NEEDS IMPROVEMENT"
-                quality_color = "🔴"
+                quality_color = ""
             
-            print(f"\n📍 Step {i}: {quality_icon} {quality_level} (Score: {step_importance:.3f}) {quality_color}")
-            print(f"   📝 Full Text: \"{step_text}\"")
-            print(f"   📊 Token Analysis: {len(token_attributions)} tokens processed")
+            print(f"\n Step {i}: {quality_icon} {quality_level} (Score: {step_importance:.3f}) {quality_color}")
+            print(f"    Full Text: \"{step_text}\"")
+            print(f"    Token Analysis: {len(token_attributions)} tokens processed")
             
             # Show top attributed tokens for this step
             if token_attributions:
                 sorted_tokens = sorted(token_attributions.items(), key=lambda x: abs(x[1]), reverse=True)
                 top_tokens = sorted_tokens[:5]  # Top 5 most important tokens
                 
-                print(f"   🎯 Most Important Tokens:")
+                print(f"    Most Important Tokens:")
                 for j, (token, attribution) in enumerate(top_tokens, 1):
-                    strength = "🔥" if abs(attribution) > 0.8 else "⚡" if abs(attribution) > 0.5 else "✨"
+                    strength = "" if abs(attribution) > 0.8 else "" if abs(attribution) > 0.5 else ""
                     print(f"      {j}. '{token}' → {attribution:.3f} {strength}")
             
             # Step quality insights
-            print(f"   💡 Quality Insights:")
+            print(f"    Quality Insights:")
             if step_importance >= excellent_threshold:
                 print(f"      • This step shows exceptional reasoning quality")
                 print(f"      • High token attribution indicates critical thinking")
@@ -362,7 +413,7 @@ class TokenSHAPWithSFACoT:
             print(f"   {'-' * 70}")
         
         # Overall comparison and recommendations
-        print(f"\n🎯 Overall Quality Assessment:")
+        print(f"\n Overall Quality Assessment:")
         print(f"{'=' * 80}")
         
         step_scores = [s.get('step_importance', 0.0) for s in step_attributions]
@@ -370,9 +421,9 @@ class TokenSHAPWithSFACoT:
         max_score = max(step_scores) if step_scores else 0.0
         min_score = min(step_scores) if step_scores else 0.0
         
-        print(f"📈 Score Distribution:")
+        print(f" Score Distribution:")
         print(f"   • Average Step Quality: {avg_score:.3f}")
-        print(f"   • Highest Step Score: {max_score:.3f} ⭐")
+        print(f"   • Highest Step Score: {max_score:.3f} ")
         print(f"   • Lowest Step Score: {min_score:.3f}")
         print(f"   • Score Range: {max_score - min_score:.3f}")
         
@@ -382,24 +433,24 @@ class TokenSHAPWithSFACoT:
         fair_count = sum(1 for score in step_scores if fair_threshold <= score < good_threshold)
         poor_count = sum(1 for score in step_scores if score < fair_threshold)
         
-        print(f"\n🏆 Quality Distribution:")
-        print(f"   🌟 Excellent steps: {excellent_count}/{len(step_scores)} ({excellent_count/len(step_scores)*100:.1f}%)")
-        print(f"   ⭐ Good steps: {good_count}/{len(step_scores)} ({good_count/len(step_scores)*100:.1f}%)")
-        print(f"   ✨ Fair steps: {fair_count}/{len(step_scores)} ({fair_count/len(step_scores)*100:.1f}%)")
-        print(f"   💫 Needs improvement: {poor_count}/{len(step_scores)} ({poor_count/len(step_scores)*100:.1f}%)")
+        print(f"\n Quality Distribution:")
+        print(f"    Excellent steps: {excellent_count}/{len(step_scores)} ({excellent_count/len(step_scores)*100:.1f}%)")
+        print(f"    Good steps: {good_count}/{len(step_scores)} ({good_count/len(step_scores)*100:.1f}%)")
+        print(f"    Fair steps: {fair_count}/{len(step_scores)} ({fair_count/len(step_scores)*100:.1f}%)")
+        print(f"    Needs improvement: {poor_count}/{len(step_scores)} ({poor_count/len(step_scores)*100:.1f}%)")
         
         # Overall reasoning quality verdict
-        print(f"\n🎯 Final Verdict:")
+        print(f"\n Final Verdict:")
         if avg_score >= excellent_threshold:
-            print(f"   🌟 OUTSTANDING reasoning quality! This CoT shows exceptional analytical depth.")
+            print(f"    OUTSTANDING reasoning quality! This CoT shows exceptional analytical depth.")
         elif avg_score >= good_threshold:
-            print(f"   ⭐ GOOD reasoning quality. Well-structured and logical analysis.")
+            print(f"    GOOD reasoning quality. Well-structured and logical analysis.")
         elif avg_score >= fair_threshold:
-            print(f"   ✨ ACCEPTABLE reasoning quality. Some steps could be strengthened.")
+            print(f"    ACCEPTABLE reasoning quality. Some steps could be strengthened.")
         else:
-            print(f"   💫 IMPROVEMENT NEEDED. Consider more detailed step-by-step reasoning.")
+            print(f"    IMPROVEMENT NEEDED. Consider more detailed step-by-step reasoning.")
         
-        print(f"\n📋 Recommendations:")
+        print(f"\n Recommendations:")
         if excellent_count == 0:
             print(f"   • Focus on developing more detailed explanations in each step")
         if poor_count > 0:
@@ -514,10 +565,10 @@ class TokenSHAPWithSFACoT:
         if not prompt:
             prompt = "If I have 10 apples and give away 3, how many do I have left?"
         
-        print(f"🚀 TokenSHAP+SFA+CoT Quick Demo")
+        print(f" TokenSHAP+SFA+CoT Quick Demo")
         print(f"=" * 40)
-        print(f"💡 Combining your custom SFA implementation with CoT reasoning")
-        print(f"⏰ Expected time: 1-2 minutes with phi4-reasoning")
+        print(f" Combining your custom SFA implementation with CoT reasoning")
+        print(f" Expected time: 1-2 minutes with phi4-reasoning")
         
         return self.analyze_with_cot_and_sfa(prompt)
     
@@ -578,10 +629,10 @@ class TokenSHAPWithSFACoT:
                 tokenizer=tokenizer,
                 config=self.config
             )
-            print("✅ Direct TokenSHAPWithSFA initialized successfully!")
+            print(" Direct TokenSHAPWithSFA initialized successfully!")
             
         except Exception as e:
-            print(f"⚠️ Direct TokenSHAPWithSFA initialization failed: {e}")
+            print(f" Direct TokenSHAPWithSFA initialization failed: {e}")
             self.tokenshap_sfa = None
     
     def _create_ollama_tokenshap_sfa(self) -> 'TokenSHAPWithSFA':
@@ -674,7 +725,7 @@ class TokenSHAPWithSFACoT:
 
 # Example usage and testing
 if __name__ == "__main__":
-    print("🧠 TokenSHAP with SFA + CoT Integration Demo")
+    print(" TokenSHAP with SFA + CoT Integration Demo")
     print("=" * 50)
     
     # BUG FIXED! Parameter passing corrected in TokenSHAPWithOllama calls
@@ -691,7 +742,7 @@ if __name__ == "__main__":
         result = analyzer.quick_demo(test_prompt)
         
         # Display results
-        print(f"\n📊 Analysis Results Summary:")
+        print(f"\n Analysis Results Summary:")
         if 'summary' in result:
             summary = result['summary']
             print(f"   • Analysis type: {summary.get('analysis_type', 'N/A')}")
@@ -703,9 +754,9 @@ if __name__ == "__main__":
                 step_info = summary['most_important_step']
                 print(f"   • Most important step: #{step_info['step_number']} (score: {step_info['importance_score']:.3f})")
         
-        print(f"\n🎯 Your custom TokenSHAP+SFA is now integrated with CoT analysis!")
+        print(f"\n Your custom TokenSHAP+SFA is now integrated with CoT analysis!")
         
     except Exception as e:
-        print(f"❌ Demo failed: {e}")
-        print("💡 Make sure Ollama is running with phi4-reasoning model")
-        print("💡 Check: ollama list")
+        print(f" Demo failed: {e}")
+        print(" Make sure Ollama is running with phi4-reasoning model")
+        print(" Check: ollama list")

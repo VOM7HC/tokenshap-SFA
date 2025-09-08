@@ -5,6 +5,7 @@ Example usage of TokenSHAP with Ollama models
 from config import TokenSHAPConfig
 from tokenshap_ollama import TokenSHAPWithOllama
 from ollama_integration import test_ollama_connection
+import os
 import logging
 
 # Set up logging
@@ -12,11 +13,29 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
+def check_sfa_status():
+    """Check if pre-trained SFA models are available"""
+    models_dir = "models"
+    sfa_trained_path = os.path.join(models_dir, "sfa_trained.pkl")
+    
+    if os.path.exists(sfa_trained_path):
+        print("SFA Status: Using pre-trained SFA models (enhanced performance)")
+        print(f"Trained model found: {sfa_trained_path}")
+        return True
+    else:
+        print("SFA Status: Using heuristic methods (fallback)")
+        print("Run auto_train_sfa.py to train enhanced SFA models")
+        return False
+
 def main():
     """Example usage of TokenSHAP with Ollama models"""
     
     print("TokenSHAP with Ollama - Example Usage")
     print("=" * 50)
+    
+    # Check SFA training status
+    print("\n0. Checking SFA training status...")
+    has_trained_sfa = check_sfa_status()
     
     # Using phi4-reasoning model (GPU accelerated)
     models_to_test = [
@@ -31,7 +50,7 @@ def main():
     print("\n1. Testing Ollama server connections...")
     for model_config in models_to_test:
         is_available = test_ollama_connection(model_config["url"])
-        status = "✓ Available" if is_available else "✗ Not available"
+        status = " Available" if is_available else " Not available"
         print(f"   {model_config['description']}: {status}")
     
     # Configuration optimized for phi4-reasoning (large model)
@@ -60,25 +79,25 @@ def main():
     for model_config in models_to_test:
         print(f"\n2. Testing {model_config['description']}...")
         print("=" * 60)
-        print("💡 phi4-reasoning is a large model (14.7B parameters)")
-        print("⏰ Expected time: 1-3 minutes with GPU acceleration")
-        print("🔥 First analysis may take extra time for warmup...")
+        print(" phi4-reasoning is a large model (14.7B parameters)")
+        print(" Expected time: 1-3 minutes with GPU acceleration")
+        print(" First analysis may take extra time for warmup...")
         
         try:
             # Initialize TokenSHAP with phi4-reasoning
-            print("\n🔄 Initializing TokenSHAP with phi4-reasoning...")
+            print("\n Initializing TokenSHAP with phi4-reasoning...")
             explainer = TokenSHAPWithOllama(
                 model_name=model_config["name"],
                 api_url=model_config["url"],
                 config=config
             )
             
-            print(f"✓ Initialized TokenSHAP with {model_config['name']}")
+            print(f" Initialized TokenSHAP with {model_config['name']}")
             
             # Test basic explanation with simple prompt
             test_prompt = test_prompts[0]
-            print(f"\n⚡ Analyzing: '{test_prompt}'")
-            print("🔄 Processing with phi4-reasoning (please be patient)...")
+            print(f"\n Analyzing: '{test_prompt}'")
+            print(" Processing with phi4-reasoning (please be patient)...")
             
             result = explainer.explain(test_prompt, max_samples=3)  # Reduced for phi4-reasoning
             
@@ -87,14 +106,20 @@ def main():
             for i, (token, importance) in enumerate(sorted_tokens[:7]):
                 print(f"     {i+1:2d}. '{token}': {importance:+.4f}")
             
-            # Train SFA for faster predictions
-            print(f"\n   Training SFA meta-learner...")
-            training_result = explainer.train_sfa(training_prompts)
-            print(f"   ✓ SFA training completed: {training_result.get('n_samples', 0)} samples")
-            
-            # Test SFA prediction
-            print(f"\n   Testing SFA prediction...")
-            sfa_result = explainer.explain(test_prompt, method="sfa")
+            if has_trained_sfa:
+                # Use pre-trained enhanced SFA
+                print(f"\n   Using pre-trained SFA models (enhanced with augmentation)...")
+                sfa_result = explainer.explain(test_prompt, method="sfa")
+                print("   Pre-trained SFA provides enhanced Shapley approximations")
+            else:
+                # Train SFA for faster predictions
+                print(f"\n   Training SFA meta-learner...")
+                training_result = explainer.train_sfa(training_prompts)
+                print(f"    SFA training completed: {training_result.get('n_samples', 0)} samples")
+                
+                # Test SFA prediction
+                print(f"\n   Testing SFA prediction...")
+                sfa_result = explainer.explain(test_prompt, method="sfa")
             
             print("   SFA Token importance rankings:")
             sfa_sorted = sorted(sfa_result.items(), key=lambda x: abs(x[1]), reverse=True)
@@ -114,24 +139,26 @@ def main():
             # Save trained model
             model_filename = f"tokenshap_{model_config['name'].replace(':', '_').replace('.', '_')}.pkl"
             explainer.save(model_filename)
-            print(f"   ✓ Model saved to {model_filename}")
+            print(f"    Model saved to {model_filename}")
             
-            print(f"\n✓ {model_config['description']} testing completed successfully!")
+            print(f"\n {model_config['description']} testing completed successfully!")
             
         except Exception as e:
-            print(f"✗ Error testing {model_config['description']}: {str(e)}")
+            print(f" Error testing {model_config['description']}: {str(e)}")
             logger.error(f"Model test failed: {str(e)}", exc_info=True)
     
     print(f"\n" + "=" * 60)
     print("Example Summary:")
     print("- TokenSHAP can work with any Ollama model")
     print("- SFA provides significant speedup after training")
+    print("- Pre-trained SFA models offer enhanced performance with augmentation")
     print("- Models can be saved and loaded for reuse")
     print("- Both local and remote Ollama servers are supported")
     print("\nNext steps:")
     print("1. Install Ollama: https://ollama.ai/")
     print("2. Pull models: ollama pull phi4-reasoning:latest")
-    print("3. Run this example with your models")
+    print("3. Run auto_train_sfa.py to train enhanced SFA models")
+    print("4. Run this example with your models")
     
 
 def simple_usage_example():
@@ -143,13 +170,13 @@ def simple_usage_example():
     model_name = "phi4-reasoning:latest"  # GPU-optimized reasoning model
     api_url = "http://127.0.0.1:11434"  # your Ollama server
     
-    print(f"💡 Using {model_name} (14.7B parameters)")
-    print("⏰ Expected time: 30-60 seconds with GPU acceleration")
-    print("🔥 First run may take extra time for model warmup...")
+    print(f" Using {model_name} (14.7B parameters)")
+    print(" Expected time: 30-60 seconds with GPU acceleration")
+    print(" First run may take extra time for model warmup...")
     
     try:
         # Initialize with reduced samples for phi4-reasoning
-        print("\n🔄 Initializing TokenSHAP with phi4-reasoning...")
+        print("\n Initializing TokenSHAP with phi4-reasoning...")
         explainer = TokenSHAPWithOllama(
             model_name=model_name,
             api_url=api_url,
@@ -162,26 +189,26 @@ def simple_usage_example():
         
         # Explain a simple prompt
         prompt = "AI will change the world."
-        print(f"\n⚡ Analyzing prompt: '{prompt}'")
-        print("🔄 Processing with phi4-reasoning (please be patient)...")
+        print(f"\n Analyzing prompt: '{prompt}'")
+        print(" Processing with phi4-reasoning (please be patient)...")
         
         result = explainer.explain(prompt)
         
-        print(f"\n✅ Analysis completed!")
-        print("📊 Token importance scores:")
+        print(f"\n Analysis completed!")
+        print(" Token importance scores:")
         for token, importance in result.items():
             print(f"  '{token}': {importance:+.3f}")
         
-        print("\n🎯 phi4-reasoning analysis completed successfully!")
+        print("\n phi4-reasoning analysis completed successfully!")
         
     except Exception as e:
-        print(f"\n❌ Analysis failed: {str(e)}")
+        print(f"\n Analysis failed: {str(e)}")
         if "timeout" in str(e).lower():
-            print("💡 phi4-reasoning timed out - this is normal for large models")
-            print("💡 Try increasing timeout or use a smaller model for testing")
+            print(" phi4-reasoning timed out - this is normal for large models")
+            print(" Try increasing timeout or use a smaller model for testing")
         else:
-            print("💡 Make sure Ollama is running: ollama serve")
-            print("💡 Verify model is available: ollama list")
+            print(" Make sure Ollama is running: ollama serve")
+            print(" Verify model is available: ollama list")
 
 
 if __name__ == "__main__":
