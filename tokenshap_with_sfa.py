@@ -195,27 +195,17 @@ class TokenSHAPWithSFA:
     
     def compute_augmented_shapley(self, prompt: str) -> Dict[str, float]:
         """
-        Compute Shapley values with SFA augmentation (Claude Opus 4.1 enhancement)
-        Uses guided sampling and augmented features for improved accuracy
+        Compute Shapley values with P, SHAP, P+SHAP augmentation (Claude Opus 4.1)
         """
-        
         tokens = self.token_explainer.processor.tokenize(prompt)
         
         if self.sfa_learner.is_trained:
-            # Step 1: Get initial Shapley estimate from SFA
-            initial_estimate = self.sfa_learner.predict(prompt, tokens)
-            
-            # Step 2: Use initial estimate to guide sampling
-            guided_shapley = self._compute_guided_shapley(
-                prompt, tokens, initial_estimate
-            )
-            
-            # Step 3: Refine with augmented features
-            refined_shapley = self.sfa_learner.predict_augmented(
-                prompt, tokens, guided_shapley
-            )
-            
-            return refined_shapley
+            # Use the ensemble of three models if available
+            if hasattr(self.sfa_learner, 'predict_ensemble'):
+                return self.sfa_learner.predict_ensemble(prompt, tokens)
+            else:
+                # Fallback to standard augmented prediction
+                return self.sfa_learner.predict_augmented(prompt, tokens)
         else:
             # No SFA augmentation available, use standard TokenSHAP
             return self.token_explainer.compute_shapley_values(prompt)

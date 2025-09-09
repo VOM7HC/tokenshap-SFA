@@ -227,16 +227,19 @@ class CoTTokenSHAP:
         for step in cot_steps:
             tokens = self.processor.tokenize(step)
             
-            # Use SFA predictions augmented with initial Shapley estimates
+            # Use SFA predictions with 3-model ensemble (Claude Opus 4.1)
             if sfa_learner.is_trained:
-                # Get quick SFA prediction
-                sfa_prediction = sfa_learner.predict(step, tokens)
-                
-                # Use augmented prediction for better accuracy
-                augmented_attribution = sfa_learner.predict_augmented(
-                    step, tokens, sfa_prediction
-                )
-                token_attributions.append(augmented_attribution)
+                # Try 3-model ensemble first for best accuracy
+                if hasattr(sfa_learner, 'predict_ensemble'):
+                    ensemble_attribution = sfa_learner.predict_ensemble(step, tokens)
+                    token_attributions.append(ensemble_attribution)
+                else:
+                    # Fallback to standard augmented prediction
+                    sfa_prediction = sfa_learner.predict(step, tokens)
+                    augmented_attribution = sfa_learner.predict_augmented(
+                        step, tokens, sfa_prediction
+                    )
+                    token_attributions.append(augmented_attribution)
             else:
                 # Fallback to standard Shapley
                 token_attributions.append(

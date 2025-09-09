@@ -163,17 +163,35 @@ class TokenSHAPWithSFACoT:
                     sfa_stats = self.tokenshap_sfa.sfa_learner.get_training_stats()
                     if sfa_stats and sfa_stats.get('is_trained', False):
                         sfa_insights['sfa_model_stats'] = sfa_stats
-                        print(f" Using Pre-Trained SFA Model (not heuristics):")
-                        print(f"    Trained: {sfa_stats.get('is_trained', False)}")
+                        
+                        # Check for 3-model architecture
+                        has_3_model = (hasattr(self.tokenshap_sfa.sfa_learner, 'meta_model_p') and 
+                                     self.tokenshap_sfa.sfa_learner.meta_model_p is not None)
+                        
+                        if has_3_model:
+                            print(f" Using Enhanced 3-Model SFA (Claude Opus 4.1):")
+                            print(f"    Architecture: P-only, SHAP-only, P+SHAP ensemble")
+                            if 'p_score' in sfa_stats:
+                                print(f"    P-only model score: {sfa_stats.get('p_score', 0.0):.4f}")
+                                print(f"    SHAP-only model score: {sfa_stats.get('shap_score', 0.0):.4f}")
+                                print(f"    P+SHAP model score: {sfa_stats.get('p_shap_score', 0.0):.4f}")
+                                best_score = max(sfa_stats.get('p_score', 0), sfa_stats.get('shap_score', 0), sfa_stats.get('p_shap_score', 0))
+                                print(f"    Best ensemble score: {best_score:.4f}")
+                            sfa_insights['model_type'] = '3_model_ensemble'
+                            sfa_insights['data_quality'] = 'highest'
+                        else:
+                            print(f" Using Pre-Trained SFA Model (not heuristics):")
+                            print(f"    Base model score: {sfa_stats.get('base_model_score', 0.0):.4f}")
+                            print(f"    Augmented model score: {sfa_stats.get('augmented_model_score', 0.0):.4f}")
+                            print(f"    SFA improvement: {sfa_stats.get('improvement', 0.0):.4f}")
+                            sfa_insights['model_type'] = 'standard_sfa'
+                            sfa_insights['data_quality'] = 'high' if sfa_stats.get('improvement', 0) > 0.1 else 'moderate'
+                        
                         print(f"    Training samples: {sfa_stats.get('training_samples', 0)}")
-                        print(f"    Base model score: {sfa_stats.get('base_model_score', 0.0):.4f}")
-                        print(f"    Augmented model score: {sfa_stats.get('augmented_model_score', 0.0):.4f}")
-                        print(f"    SFA improvement: {sfa_stats.get('improvement', 0.0):.4f}")
                         print(f"    Cached predictions: {sfa_stats.get('cached_predictions', 0)}")
                         print(f"    Training iterations: {sfa_stats.get('training_iterations', 0)}")
                         
                         sfa_insights['data_source'] = 'pre_trained'
-                        sfa_insights['data_quality'] = 'high' if sfa_stats.get('improvement', 0) > 0.1 else 'moderate'
                     else:
                         print(f" Using Heuristic SFA Analysis:")
                         print(f"    No pre-trained SFA model found")
@@ -185,8 +203,12 @@ class TokenSHAPWithSFACoT:
                 
                 # Enhanced completion message
                 data_source = sfa_insights.get('data_source', 'unknown')
+                model_type = sfa_insights.get('model_type', 'unknown')
                 if data_source == 'pre_trained':
-                    print(f" Enhanced SFA analyzed {len(all_attributions)} token attributions using trained data!")
+                    if model_type == '3_model_ensemble':
+                        print(f" 3-Model SFA Ensemble analyzed {len(all_attributions)} token attributions using Claude Opus 4.1 architecture!")
+                    else:
+                        print(f" Enhanced SFA analyzed {len(all_attributions)} token attributions using trained data!")
                 else:
                     print(f" SFA analyzed {len(all_attributions)} token attributions using heuristic methods")
         

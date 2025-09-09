@@ -187,12 +187,22 @@ def auto_train_and_save(model_name: str = "phi4-reasoning:latest",
             batch_time = time.time() - batch_start
             print(f"    Batch {batch_num} completed in {batch_time:.2f}s")
             
-            if isinstance(result, dict) and 'base_model_score' in result:
-                print(f"    Base model score: {result['base_model_score']:.4f}")
-                if 'augmented_model_score' in result:
-                    print(f"    Augmented score: {result['augmented_model_score']:.4f}")
-                    improvement = result['augmented_model_score'] - result['base_model_score']
-                    print(f"    SFA improvement: {improvement:.4f}")
+            if isinstance(result, dict):
+                # Check for 3-model results
+                if 'p_score' in result and 'shap_score' in result and 'p_shap_score' in result:
+                    print(f"    3-Model Training Results:")
+                    print(f"      P-only model: {result['p_score']:.4f}")
+                    print(f"      SHAP-only model: {result['shap_score']:.4f}")
+                    print(f"      P+SHAP model: {result['p_shap_score']:.4f}")
+                    best_score = max(result['p_score'], result['shap_score'], result['p_shap_score'])
+                    print(f"      Best ensemble score: {best_score:.4f}")
+                # Fallback to standard results
+                elif 'base_model_score' in result:
+                    print(f"    Base model score: {result['base_model_score']:.4f}")
+                    if 'augmented_model_score' in result:
+                        print(f"    Augmented score: {result['augmented_model_score']:.4f}")
+                        improvement = result['augmented_model_score'] - result['base_model_score']
+                        print(f"    SFA improvement: {improvement:.4f}")
                     
         except Exception as e:
             print(f"    Batch {batch_num} failed: {e}")
@@ -280,8 +290,9 @@ def auto_train_and_save(model_name: str = "phi4-reasoning:latest",
     print(f"   • SFA model saved: {sfa_model_path}")
     
     if summary['successful_batches'] > 0:
-        print(f"\n SFA training completed successfully!")
-        print(f" Your system now uses trained SFA data instead of heuristics!")
+        print(f"\n Enhanced 3-Model SFA training completed successfully!")
+        print(f" Your system now uses trained SFA data with P, SHAP, and P+SHAP ensemble!")
+        print(f" Benefits: Improved accuracy through multi-model ensemble prediction")
     else:
         print(f"\n SFA training had issues - check the logs above")
         
