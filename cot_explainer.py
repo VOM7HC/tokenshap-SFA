@@ -207,6 +207,58 @@ class CoTTokenSHAP:
                 'total_tokens_analyzed': sum(len(attr) for attr in token_attributions)
             }
         }
+
+    def compute_hierarchical_attribution_augmented(self, 
+                                                 prompt: str,
+                                                 sfa_learner: 'SFAMetaLearner') -> Dict[str, Any]:
+        """
+        Enhanced CoT attribution using trained SFA for acceleration
+        """
+        # Generate CoT steps
+        cot_steps, full_response = self.generate_cot(prompt)
+        
+        if not cot_steps:
+            return {'error': 'no_cot_steps'}
+        
+        # Use SFA for fast token attribution on each step
+        token_attributions = []
+        step_complexities = []
+        
+        for step in cot_steps:
+            tokens = self.processor.tokenize(step)
+            
+            # Use SFA predictions augmented with initial Shapley estimates
+            if sfa_learner.is_trained:
+                # Get quick SFA prediction
+                sfa_prediction = sfa_learner.predict(step, tokens)
+                
+                # Use augmented prediction for better accuracy
+                augmented_attribution = sfa_learner.predict_augmented(
+                    step, tokens, sfa_prediction
+                )
+                token_attributions.append(augmented_attribution)
+            else:
+                # Fallback to standard Shapley
+                token_attributions.append(
+                    self.token_explainer.compute_shapley_values(step)
+                )
+            
+            complexity = sum(abs(v) for v in token_attributions[-1].values())
+            step_complexities.append(complexity)
+        
+        # Continue with rest of hierarchical analysis...
+        step_importance = self._compute_step_importance(cot_steps, full_response)
+        chain_coherence = self._compute_chain_coherence(cot_steps, step_importance)
+        
+        return {
+            'prompt': prompt,
+            'cot_steps': cot_steps,
+            'token_attributions': token_attributions,
+            'step_importance': step_importance,
+            'step_complexities': step_complexities,
+            'chain_coherence': chain_coherence,
+            'augmented': True  # Flag to indicate SFA augmentation was used
+        }
     
     def _compute_step_importance(self, steps: List[str], full_response: str) -> List[float]:
         """Compute importance of each reasoning step"""

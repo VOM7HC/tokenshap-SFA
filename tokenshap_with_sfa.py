@@ -69,50 +69,81 @@ class TokenSHAPWithSFA:
                use_cot: bool = False,
                return_details: bool = False) -> Dict[str, Any]:
         """
-        Unified explanation interface
-        
-        Args:
-            prompt: Input text to explain
-            method: Attribution method to use
-            use_cot: Whether to use Chain-of-Thought reasoning
-            return_details: Return detailed attribution info
+        Truly unified explanation interface (Claude Opus 4.1 enhancement)
         """
+        # Step 1: Generate base attributions
+        base_attributions = self._compute_base_attributions(prompt, method)
+        
+        # Step 2: Apply CoT if requested
         if use_cot:
-            # Enhanced CoT-based hierarchical attribution with SFA augmentation
-            if method == AttributionMethod.HYBRID and self.sfa_learner.is_trained:
-                # Use enhanced SFA augmentation for CoT
-                return self.cot_explainer.compute_hierarchical_attribution_augmented(
-                    prompt, self.sfa_learner
-                )
-            else:
-                # Standard CoT attribution
-                return self.cot_explainer.compute_hierarchical_attribution(
-                    prompt,
-                    use_sfa=(method in [AttributionMethod.SFA, AttributionMethod.HYBRID])
-                )
+            attributions = self._apply_cot_analysis(prompt, base_attributions, method)
+        else:
+            attributions = base_attributions
         
-        # Standard attribution
+        # Step 3: Apply augmentation if using HYBRID and SFA is trained
+        if method == AttributionMethod.HYBRID and self.sfa_learner.is_trained:
+            attributions = self._apply_sfa_augmentation(prompt, attributions)
+        
+        # Step 4: Format results consistently
+        return self._format_results(attributions, return_details)
+
+    def _compute_base_attributions(self, prompt: str, method: AttributionMethod) -> Dict[str, float]:
+        """Compute base attributions using selected method"""
         if method == AttributionMethod.TOKENSHAP:
-            result = self.token_explainer.compute_shapley_values(prompt, return_details)
-        
+            return self.token_explainer.compute_shapley_values(prompt)
         elif method == AttributionMethod.SFA:
             if not self.sfa_learner.is_trained:
                 raise ValueError("SFA not trained. Use train_sfa() first.")
             tokens = self.token_explainer.processor.tokenize(prompt)
-            result = self.sfa_learner.predict(prompt, tokens)
-            
-        else:  # HYBRID - Enhanced with SFA augmentation
+            return self.sfa_learner.predict(prompt, tokens)
+        else:  # HYBRID
             if self.sfa_learner.is_trained:
-                # Use enhanced SFA augmentation (Claude Opus 4.1)
-                result = self.compute_augmented_shapley(prompt)
+                return self.compute_augmented_shapley(prompt)
             else:
-                # Fall back to TokenSHAP
-                result = self.token_explainer.compute_shapley_values(prompt, return_details)
+                return self.token_explainer.compute_shapley_values(prompt)
+
+    def _apply_cot_analysis(self, prompt: str, base_attributions: Dict[str, float], method: AttributionMethod) -> Dict[str, Any]:
+        """Apply Chain-of-Thought analysis to base attributions"""
+        if method == AttributionMethod.HYBRID and self.sfa_learner.is_trained:
+            # Use enhanced SFA augmentation for CoT
+            cot_result = self.cot_explainer.compute_hierarchical_attribution_augmented(
+                prompt, self.sfa_learner
+            )
+            # Incorporate base attributions as initial estimate
+            cot_result['base_attributions'] = base_attributions
+            return cot_result
+        else:
+            # Standard CoT attribution
+            cot_result = self.cot_explainer.compute_hierarchical_attribution(
+                prompt,
+                use_sfa=(method in [AttributionMethod.SFA, AttributionMethod.HYBRID])
+            )
+            # Include base attributions for reference
+            cot_result['base_attributions'] = base_attributions
+            return cot_result
+
+    def _apply_sfa_augmentation(self, prompt: str, attributions: Dict[str, Any]) -> Dict[str, Any]:
+        """Apply SFA augmentation to existing attributions"""
+        if isinstance(attributions, dict) and 'shapley_values' in attributions:
+            # Already processed through CoT, enhance the shapley values
+            tokens = self.token_explainer.processor.tokenize(prompt)
+            augmented_shapley = self.sfa_learner.predict_augmented(
+                prompt, tokens, attributions['shapley_values']
+            )
+            attributions['shapley_values'] = augmented_shapley
+            attributions['augmented'] = True
+        else:
+            # Simple attribution dict, apply augmentation directly
+            tokens = self.token_explainer.processor.tokenize(prompt)
+            attributions = self.sfa_learner.predict_augmented(prompt, tokens, attributions)
         
-        if return_details and not isinstance(result, dict) or 'shapley_values' not in result:
-            result = {'shapley_values': result}
-        
-        return result
+        return attributions
+
+    def _format_results(self, attributions: Dict[str, Any], return_details: bool) -> Dict[str, Any]:
+        """Format results consistently"""
+        if return_details and not isinstance(attributions, dict) or 'shapley_values' not in attributions:
+            return {'shapley_values': attributions}
+        return attributions
     
     def compute_augmented_shapley(self, prompt: str) -> Dict[str, float]:
         """

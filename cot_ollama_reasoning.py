@@ -362,6 +362,7 @@ class OllamaCoTAnalyzer:
         logger.info(f"CoT analysis complete: {reasoning_depth} steps, quality={metadata.get('reasoning_quality', 0.0):.2f}")
         
         return result
+
     
     def _compute_step_importance(self, steps: List[str], full_response: str) -> List[float]:
         """Compute importance of each reasoning step"""
