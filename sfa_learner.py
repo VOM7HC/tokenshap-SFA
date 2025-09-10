@@ -195,14 +195,84 @@ class SFAMetaLearner:
         return oof_preds
 
     def _extract_shap_features(self, training_data: List[Tuple[str, Dict[str, float]]]) -> np.ndarray:
-        """Extract SHAP features from training data"""
+        """Extract SHAP features using proper SHAP library when available"""
+        try:
+            import shap
+            logger.info("SHAP library available - using as feature source")
+            # Build base features for all tokens in the training data
+            X_base, y_all, _ = self._prepare_base_features(training_data)
+
+            # Train a small surrogate model to map base features -> token-level target
+            # We use a tree-based model so TreeExplainer can provide efficient SHAP values
+            surrogate_model = GradientBoostingRegressor(
+                n_estimators=min(100, max(50, self.config.sfa_n_estimators)),
+                max_depth=self.config.sfa_max_depth,
+                random_state=42
+            )
+            surrogate_model.fit(X_base, y_all)
+
+            # Use TreeExplainer for tree models; fall back to generic Explainer if needed
+            shap_values = None
+            expected_value = None
+            try:
+                explainer = shap.TreeExplainer(surrogate_model)
+                shap_values = explainer.shap_values(X_base)
+                expected_value = explainer.expected_value
+                logger.info("Computed SHAP values with TreeExplainer")
+            except Exception as e:
+                logger.warning(f"TreeExplainer failed ({e}), falling back to generic Explainer")
+                explainer = shap.Explainer(surrogate_model, X_base)
+                explanation = explainer(X_base)
+                # Newer SHAP returns Explanation objects
+                shap_values = getattr(explanation, 'values', explanation)
+                expected_value = getattr(explanation, 'base_values', 0.0)
+
+            # Normalize shapes across SHAP versions
+            # - shap_values: (n_samples, n_features)
+            # - expected_value/base_values: scalar or (n_samples,)
+            import numpy as _np
+            shap_values_arr = _np.array(shap_values)
+            if shap_values_arr.ndim == 3:
+                # Some SHAP versions return [class, samples, features]; use first class for regression-like case
+                shap_values_arr = shap_values_arr[0]
+
+            # Derive a single signed SHAP scalar per sample using additivity:
+            #   model_output - base_value = sum(feature_shap_values)
+            shap_signed_sum = shap_values_arr.sum(axis=1)
+
+            # expected_value can be scalar, 1-element array, or per-sample
+            if isinstance(expected_value, (list, tuple, _np.ndarray)):
+                try:
+                    base_vals = _np.array(expected_value).reshape(-1)
+                    base_val = base_vals[0] if base_vals.size > 1 else float(base_vals[0])
+                except Exception:
+                    base_val = float(_np.mean(expected_value))
+            else:
+                base_val = float(expected_value) if expected_value is not None else 0.0
+
+            # Use the signed sum as the core SHAP-derived scalar; it correlates with f(x)-E[f(x)]
+            s = shap_signed_sum.astype(_np.float32)
+            shap_features = _np.stack([
+                s,                         # Raw signed SHAP sum per sample
+                _np.abs(s),                 # Absolute magnitude
+                _np.square(s),              # Squared magnitude
+                _np.sign(s),                # Sign indicator
+                _np.tanh(s)                 # Bounded transform
+            ], axis=1)
+
+            return shap_features.astype(_np.float32)
+
+        except ImportError:
+            logger.warning("SHAP library not available, using TokenSHAP values as approximation")
+        
+        # Extract features from TokenSHAP values (valid SHAP approximation)
         shap_features = []
         
         for prompt, shapley_dict in training_data:
             tokens = prompt.split()
             for token in tokens:
                 shap_val = shapley_dict.get(token, 0.0)
-                # Create multiple SHAP-derived features
+                # Create multiple SHAP-derived features following SHAP methodology
                 shap_features.append([
                     shap_val,                    # Raw SHAP value
                     abs(shap_val),               # Absolute importance
