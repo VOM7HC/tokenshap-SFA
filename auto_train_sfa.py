@@ -180,8 +180,8 @@ def auto_train_and_save(model_name: str = "phi4-reasoning:latest",
         batch_start = time.time()
         
         try:
-            # Train SFA with this batch
-            result = explainer.train_sfa(batch_prompts, batch_size=len(batch_prompts))
+            # Train SFA with this batch using 3-model approach
+            result = explainer.train_sfa(batch_prompts)
             all_results.append(result)
             
             batch_time = time.time() - batch_start
@@ -219,17 +219,19 @@ def auto_train_and_save(model_name: str = "phi4-reasoning:latest",
     print(f"\n Training completed in {total_time:.2f} seconds")
     print(f" Average time per prompt: {total_time/len(training_prompts):.2f}s")
     
-    # Get final SFA statistics
+    # Get final SFA statistics using 3-model approach
     try:
-        sfa_stats = {
-            'is_trained': explainer.sfa_learner.is_trained,
-            'training_samples': len(explainer.training_cache),
-            'model_type': type(explainer.sfa_learner.meta_model).__name__ if explainer.sfa_learner.meta_model else 'None'
-        }
+        sfa_stats = explainer.sfa_learner.get_training_stats()
         print(f"\n Final SFA Statistics:")
-        print(f"   • SFA trained: {sfa_stats['is_trained']}")
-        print(f"   • Training samples: {sfa_stats['training_samples']}")
-        print(f"   • Model type: {sfa_stats['model_type']}")
+        print(f"   • SFA trained: {sfa_stats.get('is_trained', False)}")
+        print(f"   • Training samples: {sfa_stats.get('training_samples', 0)}")
+        if sfa_stats.get('model_type') == '3_model_sfa':
+            print(f"   • Model type: 3-Model SFA (P/SHAP/P+SHAP)")
+            print(f"   • P-only score: {sfa_stats.get('p_score', 0):.4f}")
+            print(f"   • SHAP-only score: {sfa_stats.get('shap_score', 0):.4f}")
+            print(f"   • P+SHAP score: {sfa_stats.get('p_shap_score', 0):.4f}")
+        else:
+            print(f"   • Model type: {sfa_stats.get('model_type', 'Unknown')}")
             
     except Exception as e:
         print(f" Could not get SFA stats: {e}")

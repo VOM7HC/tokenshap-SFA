@@ -3,7 +3,6 @@ Unified framework combining Enhanced TokenSHAP with SFA and CoT support
 """
 
 import numpy as np
-import pickle
 import logging
 import time
 from typing import List, Dict, Any
@@ -57,55 +56,18 @@ class TokenSHAPWithSFA:
         # Training data accumulator for incremental learning
         self.accumulated_training_data = []
         
-        # Training cache (legacy compatibility)
-        self.training_cache = []
-        self.performance_metrics = {}
-        
         logger.info(f"Enhanced TokenSHAP+SFA initialized (SFA trained: {self.sfa_learner.is_trained})")
 
     def _load_pretrained_sfa_model(self, filepath: str) -> bool:
-        """Load pre-trained SFA model with format compatibility"""
+        """Load pre-trained SFA model with 3-model format support"""
         import os
         if not os.path.exists(filepath):
             logger.info(f"No pre-trained SFA model found at {filepath}")
             return False
             
         try:
-            import pickle
-            with open(filepath, 'rb') as f:
-                state = pickle.load(f)
-            
-            # Check if this is a TokenSHAPWithOllama format
-            if 'sfa_model' in state and 'sfa_features' in state:
-                logger.info("Loading TokenSHAPWithOllama format SFA model")
-                if state['sfa_model'] is not None:
-                    self.sfa_learner.meta_model = state['sfa_model']
-                    self.sfa_learner.feature_names = state['sfa_features']
-                    self.sfa_learner.is_trained = True
-                    self.training_cache = state.get('training_cache', [])
-                    
-                    # Create basic training history for get_training_stats compatibility
-                    if not hasattr(self.sfa_learner, 'training_history') or not self.sfa_learner.training_history:
-                        self.sfa_learner.training_history = [{
-                            'n_samples': len(self.training_cache),
-                            'base_model_score': 0.7,  # Reasonable default
-                            'augmented_model_score': 0.8,  # Reasonable default showing improvement
-                        }]
-                    
-                    logger.info(f"Successfully loaded pre-trained SFA model from {filepath}")
-                    return True
-                else:
-                    logger.warning("SFA model in file is None - not trained")
-                    return False
-            
-            # Check if this is a standard SFA format
-            elif 'meta_model' in state and 'is_trained' in state:
-                logger.info("Loading standard SFA format model")
-                return self.sfa_learner.load_training_data(filepath)
-            
-            else:
-                logger.warning(f"Unknown model format in {filepath}")
-                return False
+            # Use SFAMetaLearner's load method directly
+            return self.sfa_learner.load_training_data(filepath)
                 
         except Exception as e:
             logger.error(f"Failed to load SFA model from {filepath}: {e}")
@@ -175,15 +137,13 @@ class TokenSHAPWithSFA:
         if isinstance(attributions, dict) and 'shapley_values' in attributions:
             # Already processed through CoT, enhance the shapley values
             tokens = self.token_explainer.processor.tokenize(prompt)
-            augmented_shapley = self.sfa_learner.predict_augmented(
-                prompt, tokens, attributions['shapley_values']
-            )
+            augmented_shapley = self.sfa_learner.predict_augmented(prompt, tokens)
             attributions['shapley_values'] = augmented_shapley
             attributions['augmented'] = True
         else:
             # Simple attribution dict, apply augmentation directly
             tokens = self.token_explainer.processor.tokenize(prompt)
-            attributions = self.sfa_learner.predict_augmented(prompt, tokens, attributions)
+            attributions = self.sfa_learner.predict_augmented(prompt, tokens)
         
         return attributions
 
@@ -271,43 +231,6 @@ class TokenSHAPWithSFA:
         
         return {token: float(final_values[i]) for i, token in enumerate(tokens)}
     
-    def train_sfa_incremental(self, new_prompts: List[str], save: bool = True) -> Dict[str, Any]:
-        """
-        Incrementally train SFA with new data (Claude Opus 4.1 enhancement)
-        Allows continuous learning without retraining from scratch
-        """
-        
-        logger.info(f"Incrementally training SFA with {len(new_prompts)} new prompts...")
-        
-        # Compute Shapley values for new prompts
-        new_training_data = []
-        for prompt in new_prompts:
-            try:
-                shapley_values = self.token_explainer.compute_shapley_values(prompt)
-                new_training_data.append((prompt, shapley_values))
-                self.accumulated_training_data.append((prompt, shapley_values))
-            except Exception as e:
-                logger.warning(f"Failed to compute Shapley values for prompt: {e}")
-        
-        # Combine with existing training data (keep last 1000 samples for memory efficiency)
-        all_training_data = self.accumulated_training_data[-1000:]
-        
-        if len(all_training_data) < 5:
-            logger.warning("Not enough training data for SFA training")
-            return {'error': 'Insufficient training data'}
-        
-        # Train with augmentation
-        result = self.sfa_learner.train_with_augmentation(all_training_data)
-        
-        # Save model
-        if save:
-            try:
-                self.sfa_learner.save_training_data(self.sfa_model_path)
-                logger.info(f"SFA model saved to {self.sfa_model_path}")
-            except Exception as e:
-                logger.error(f"Failed to save SFA model: {e}")
-        
-        return result
     
     def explain_augmented(self, prompt: str, method: str = "augmented", **kwargs) -> Dict[str, Any]:
         """
@@ -384,7 +307,6 @@ class TokenSHAPWithSFA:
                         try:
                             shapley_values = future.result(timeout=60)
                             training_data.append((prompt, shapley_values))
-                            self.training_cache.append((prompt, shapley_values))
                         except Exception as e:
                             logger.error(f"Error processing prompt: {e}")
             else:
@@ -392,13 +314,9 @@ class TokenSHAPWithSFA:
                 for prompt in batch:
                     shapley_values = self.token_explainer.compute_shapley_values(prompt)
                     training_data.append((prompt, shapley_values))
-                    self.training_cache.append((prompt, shapley_values))
         
-        # Train meta-learner
+        # Train meta-learner using 3-model approach
         training_result = self.sfa_learner.train(training_data)
-        
-        # Store performance metrics
-        self.performance_metrics['sfa_training'] = training_result
         
         logger.info("SFA training complete!")
         
@@ -445,35 +363,20 @@ class TokenSHAPWithSFA:
         return results
     
     def save(self, filepath: str):
-        """Save trained models and configuration"""
-        state = {
-            'config': self.config,
-            'sfa_model': self.sfa_learner.meta_model if self.sfa_learner.is_trained else None,
-            'sfa_features': self.sfa_learner.feature_names,
-            'training_cache': self.training_cache[-100:],  # Save last 100 examples
-            'performance_metrics': self.performance_metrics
-        }
-        
-        with open(filepath, 'wb') as f:
-            pickle.dump(state, f)
-        
-        logger.info(f"Model saved to {filepath}")
+        """Save trained models and configuration using 3-model format"""
+        if self.sfa_learner.is_trained:
+            self.sfa_learner.save_training_data(filepath)
+            logger.info(f"SFA model saved to {filepath}")
+        else:
+            logger.warning("No trained SFA model to save")
     
     def load(self, filepath: str):
-        """Load trained models and configuration"""
-        with open(filepath, 'rb') as f:
-            state = pickle.load(f)
-        
-        self.config = state['config']
-        if state['sfa_model']:
-            self.sfa_learner.meta_model = state['sfa_model']
-            self.sfa_learner.is_trained = True
-            self.sfa_learner.feature_names = state['sfa_features']
-        
-        self.training_cache = state.get('training_cache', [])
-        self.performance_metrics = state.get('performance_metrics', {})
-        
-        logger.info(f"Model loaded from {filepath}")
+        """Load trained models using 3-model format"""
+        success = self.sfa_learner.load_training_data(filepath)
+        if success:
+            logger.info(f"SFA model loaded from {filepath}")
+        else:
+            logger.warning(f"Failed to load SFA model from {filepath}")
 
 
 # Example usage

@@ -3,7 +3,6 @@ TokenSHAP with Ollama model support
 """
 
 import numpy as np
-import pickle
 import logging
 import time
 from typing import List, Dict, Any, Optional, Union
@@ -265,75 +264,13 @@ class TokenSHAPWithOllama:
         # Try to load pre-trained SFA model
         self._load_pretrained_sfa_model()
         
-        # Cache for training data
-        self.training_cache = []
         
         logger.info(f"Initialized TokenSHAP with Ollama model: {model_name}")
 
     def _load_pretrained_sfa_model(self) -> bool:
-        """Load pre-trained SFA model if available"""
-        import os
+        """Load pre-trained SFA model using standard SFA format"""
         sfa_model_path = "models/sfa_trained.pkl"
-        
-        if not os.path.exists(sfa_model_path):
-            logger.info(f"No pre-trained SFA model found at {sfa_model_path}")
-            return False
-            
-        try:
-            import pickle
-            with open(sfa_model_path, 'rb') as f:
-                state = pickle.load(f)
-            
-            # Check if this is a TokenSHAPWithOllama format (which it should be)
-            if 'sfa_model' in state and 'sfa_features' in state:
-                if state['sfa_model'] is not None:
-                    # Check if this is 3-model format
-                    if 'meta_model_p' in state:
-                        logger.info("Loading 3-model TokenSHAPWithOllama format")
-                        self.sfa_learner.meta_model_p = state.get('meta_model_p')
-                        self.sfa_learner.meta_model_shap = state.get('meta_model_shap') 
-                        self.sfa_learner.meta_model_p_shap = state.get('meta_model_p_shap')
-                        self.sfa_learner.base_model = state.get('base_model')
-                        self.sfa_learner.meta_model = self.sfa_learner.meta_model_p_shap or state['sfa_model']
-                    else:
-                        # Legacy single model format
-                        self.sfa_learner.meta_model = state['sfa_model']
-                    
-                    self.sfa_learner.feature_names = state['sfa_features']
-                    self.sfa_learner.is_trained = True
-                    self.training_cache = state.get('training_cache', [])
-                    
-                    # Create basic training history for get_training_stats compatibility
-                    if not hasattr(self.sfa_learner, 'training_history') or not self.sfa_learner.training_history:
-                        # Enhanced stats for 3-model format
-                        if 'meta_model_p' in state:
-                            self.sfa_learner.training_history = [{
-                                'n_samples': len(self.training_cache),
-                                'p_score': 0.75,
-                                'shap_score': 0.78,
-                                'p_shap_score': 0.82,
-                                'base_model_score': 0.7,
-                                'augmented_model_score': 0.82,
-                            }]
-                        else:
-                            self.sfa_learner.training_history = [{
-                                'n_samples': len(self.training_cache),
-                                'base_model_score': 0.7,
-                                'augmented_model_score': 0.8,
-                            }]
-                    
-                    logger.info(f"Successfully loaded pre-trained SFA model from {sfa_model_path}")
-                    return True
-                else:
-                    logger.warning("SFA model in file is None - not trained")
-                    return False
-            else:
-                logger.warning(f"Unknown model format in {sfa_model_path}")
-                return False
-                
-        except Exception as e:
-            logger.error(f"Failed to load SFA model from {sfa_model_path}: {e}")
-            return False
+        return self.sfa_learner.load_training_data(sfa_model_path)
         
     def explain(self, prompt: str, method: str = "tokenshap", **kwargs) -> Dict[str, Any]:
         """Explain a prompt using TokenSHAP"""
@@ -352,7 +289,7 @@ class TokenSHAPWithOllama:
             # Default to TokenSHAP
             return self.token_explainer.compute_shapley_values(prompt)
     
-    def train_sfa(self, training_prompts: List[str], batch_size: int = 5) -> Dict[str, Any]:
+    def train_sfa(self, training_prompts: List[str]) -> Dict[str, Any]:
         """Train SFA meta-learner on the given prompts"""
         logger.info(f"Training SFA on {len(training_prompts)} prompts...")
         
@@ -367,15 +304,9 @@ class TokenSHAPWithOllama:
             )
             
             training_data.append((prompt, shapley_values))
-            self.training_cache.append((prompt, shapley_values))
         
-        # Try 3-model training first, fallback to standard training
-        if hasattr(self.sfa_learner, 'train_with_three_augmentations'):
-            logger.info("Using 3-model SFA training approach")
-            training_result = self.sfa_learner.train_with_three_augmentations(training_data)
-        else:
-            # Fallback to standard training
-            training_result = self.sfa_learner.train(training_data)
+        # Train using 3-model approach
+        training_result = self.sfa_learner.train(training_data)
             
         logger.info("SFA training completed!")
         
@@ -418,40 +349,20 @@ class TokenSHAPWithOllama:
         return results
     
     def save(self, filepath: str):
-        """Save the trained model (3-model format)"""
-        state = {
-            'config': self.config,
-            'model_name': self.model.model_name,
-            'api_url': self.model.api_url,
-            'sfa_model': self.sfa_learner.meta_model if self.sfa_learner.is_trained else None,
-            'sfa_features': self.sfa_learner.feature_names,
-            'training_cache': self.training_cache[-100:],  # Save last 100
-            
-            # 3-model architecture (Claude Opus 4.1)
-            'meta_model_p': getattr(self.sfa_learner, 'meta_model_p', None),
-            'meta_model_shap': getattr(self.sfa_learner, 'meta_model_shap', None),
-            'meta_model_p_shap': getattr(self.sfa_learner, 'meta_model_p_shap', None),
-            'base_model': getattr(self.sfa_learner, 'base_model', None),
-            'model_type': '3_model_ollama' if hasattr(self.sfa_learner, 'meta_model_p') else 'legacy_ollama'
-        }
-        
-        with open(filepath, 'wb') as f:
-            pickle.dump(state, f)
-        
-        logger.info(f"Model saved to {filepath}")
+        """Save the trained SFA model using standard 3-model format"""
+        if self.sfa_learner.is_trained:
+            self.sfa_learner.save_training_data(filepath)
+            logger.info(f"SFA model saved to {filepath}")
+        else:
+            logger.warning("No trained SFA model to save")
     
     def load(self, filepath: str):
-        """Load a trained model"""
-        with open(filepath, 'rb') as f:
-            state = pickle.load(f)
-        
-        if state['sfa_model']:
-            self.sfa_learner.meta_model = state['sfa_model']
-            self.sfa_learner.is_trained = True
-            self.sfa_learner.feature_names = state['sfa_features']
-        
-        self.training_cache = state.get('training_cache', [])
-        logger.info(f"Model loaded from {filepath}")
+        """Load a trained SFA model using standard format"""
+        success = self.sfa_learner.load_training_data(filepath)
+        if success:
+            logger.info(f"SFA model loaded from {filepath}")
+        else:
+            logger.warning(f"Failed to load SFA model from {filepath}")
 
 
 # Example usage
