@@ -134,21 +134,25 @@ class SFAMetaLearner:
         self.meta_model_p = GradientBoostingRegressor(
             n_estimators=self.config.sfa_n_estimators,
             max_depth=self.config.sfa_max_depth,
-            random_state=42
+            learning_rate=self.config.sfa_learning_rate,
+            subsample=self.config.sfa_subsample,
+            random_state=self.config.sfa_random_state
         )
         self.meta_model_p.fit(X_aug_p, y_all)
         
         self.meta_model_shap = RandomForestRegressor(
             n_estimators=self.config.sfa_n_estimators,
             max_depth=self.config.sfa_max_depth,
-            random_state=42
+            random_state=self.config.sfa_random_state
         )
         self.meta_model_shap.fit(X_aug_shap, y_all)
         
         self.meta_model_p_shap = GradientBoostingRegressor(
             n_estimators=self.config.sfa_n_estimators * 2,  # More estimators for complex features
             max_depth=self.config.sfa_max_depth,
-            random_state=42
+            learning_rate=self.config.sfa_learning_rate,
+            subsample=self.config.sfa_subsample,
+            random_state=self.config.sfa_random_state
         )
         self.meta_model_p_shap.fit(X_aug_p_shap, y_all)
         
@@ -156,7 +160,9 @@ class SFAMetaLearner:
         self.base_model = GradientBoostingRegressor(
             n_estimators=self.config.sfa_n_estimators,
             max_depth=self.config.sfa_max_depth,
-            random_state=42
+            learning_rate=self.config.sfa_learning_rate,
+            subsample=self.config.sfa_subsample,
+            random_state=self.config.sfa_random_state
         )
         self.base_model.fit(X_base, y_all)
         
@@ -205,9 +211,9 @@ class SFAMetaLearner:
             # Train a small surrogate model to map base features -> token-level target
             # We use a tree-based model so TreeExplainer can provide efficient SHAP values
             surrogate_model = GradientBoostingRegressor(
-                n_estimators=min(100, max(50, self.config.sfa_n_estimators)),
+                n_estimators=self.config.sfa_n_estimators,
                 max_depth=self.config.sfa_max_depth,
-                random_state=42
+                random_state=self.config.sfa_random_state
             )
             surrogate_model.fit(X_base, y_all)
 

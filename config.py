@@ -52,9 +52,12 @@ class TokenSHAPConfig:
     temperature: float = 0.7
     
     # SFA parameters
-    sfa_n_estimators: int = 100
-    sfa_max_depth: int = 10
+    sfa_n_estimators: int = 50
+    sfa_max_depth: int = 3
     sfa_min_samples_train: int = 10
+    sfa_learning_rate: float = 0.01
+    sfa_subsample: float = 0.8
+    sfa_random_state: int = 42
     
     # CoT parameters
     cot_max_steps: int = 10
