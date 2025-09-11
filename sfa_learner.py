@@ -384,10 +384,6 @@ class SFAMetaLearner:
         
         return oof_preds
     
-    def predict(self, prompt: str, tokens: List[str]) -> Dict[str, float]:
-        """Standard predict method for backward compatibility"""
-        return self.predict_augmented(prompt, tokens)
-    
     def predict_augmented(self, prompt: str, tokens: List[str]) -> Dict[str, float]:
         """Predict using augmented features - now delegates to ensemble method"""
         
@@ -398,7 +394,7 @@ class SFAMetaLearner:
         return self.predict_ensemble(prompt, tokens)
     
     def get_training_stats(self) -> Dict[str, Any]:
-        """Get training statistics (supports 3-model and legacy formats)"""
+        """Get training statistics for the 3-model format"""
         if not self.training_history:
             return {}
         
@@ -410,29 +406,13 @@ class SFAMetaLearner:
             'training_iterations': len(self.training_history)
         }
         
-        # Check if this is 3-model format
-        if 'p_score' in latest:
-            # 3-model statistics
-            stats.update({
-                'p_score': latest.get('p_score', 0.0),
-                'shap_score': latest.get('shap_score', 0.0),
-                'p_shap_score': latest.get('p_shap_score', 0.0),
-                'model_type': '3_model_sfa'
-            })
-            # Include legacy compatibility
-            stats.update({
-                'base_model_score': latest.get('base_model_score', latest.get('p_score', 0.0)),
-                'augmented_model_score': latest.get('p_shap_score', 0.0),
-                'improvement': latest.get('p_shap_score', 0.0) - latest.get('p_score', 0.0)
-            })
-        else:
-            # Legacy format
-            stats.update({
-                'base_model_score': latest.get('base_model_score', 0.0),
-                'augmented_model_score': latest.get('augmented_model_score', 0.0),
-                'improvement': latest.get('augmented_model_score', 0.0) - latest.get('base_model_score', 0.0),
-                'model_type': 'standard_sfa'
-            })
+        # 3-model statistics
+        stats.update({
+            'p_score': latest.get('p_score', 0.0),
+            'shap_score': latest.get('shap_score', 0.0),
+            'p_shap_score': latest.get('p_shap_score', 0.0),
+            'model_type': '3_model_sfa'
+        })
         
         return stats
     
@@ -464,7 +444,7 @@ class SFAMetaLearner:
         logger.info(f"SFA model saved to {filepath}")
     
     def load_training_data(self, filepath: str) -> bool:
-        """Load training data and models (supports both 3-model and legacy formats)"""
+        """Load training data and models (3-model format)"""
         if not os.path.exists(filepath):
             logger.warning(f"SFA model file not found: {filepath}")
             return False
@@ -473,23 +453,12 @@ class SFAMetaLearner:
             with open(filepath, 'rb') as f:
                 state = pickle.load(f)
             
-            # Check if this is 3-model format
-            if state.get('model_type') == '3_model_sfa':
-                logger.info("Loading 3-model SFA format")
-                # Load 3-model architecture
-                self.meta_model_p = state.get('meta_model_p')
-                self.meta_model_shap = state.get('meta_model_shap')
-                self.meta_model_p_shap = state.get('meta_model_p_shap')
-                self.base_model = state.get('base_model')
-                self.oof_predictions_cache = state.get('oof_predictions_cache', {})
-                
-            else:
-                logger.info("Loading legacy SFA format")
-                # Load legacy format - upgrade to 3-model if needed
-                legacy_model = state.get('meta_model')
-                if legacy_model:
-                    self.meta_model_p_shap = legacy_model
-                    logger.warning("Upgraded legacy SFA to 3-model format")
+            # Load 3-model architecture
+            self.meta_model_p = state.get('meta_model_p')
+            self.meta_model_shap = state.get('meta_model_shap')
+            self.meta_model_p_shap = state.get('meta_model_p_shap')
+            self.base_model = state.get('base_model')
+            self.oof_predictions_cache = state.get('oof_predictions_cache', {})
                 
             # Load common components
             self.feature_vectorizer = state.get('feature_vectorizer', self.feature_vectorizer)

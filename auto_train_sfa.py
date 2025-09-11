@@ -301,24 +301,6 @@ def auto_train_and_save(model_name: str = "phi4-reasoning:latest",
     return summary
 
 
-def quick_train_demo():
-    """Quick training demo with minimal data for testing"""
-    print(" Quick SFA Training Demo")
-    print("=" * 30)
-    print(" Using minimal training data for quick demonstration")
-    
-    return auto_train_and_save(
-        max_samples=2,  # Very fast for demo
-        batch_size=2
-    )
-
-
 if __name__ == "__main__":
-    import sys
-    
-    if len(sys.argv) > 1 and sys.argv[1] == "--demo":
-        # Quick demo mode
-        quick_train_demo()
-    else:
-        # Full training mode
-        auto_train_and_save()
+    # Full training mode
+    auto_train_and_save()

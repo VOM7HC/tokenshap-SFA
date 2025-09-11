@@ -174,10 +174,6 @@ class OllamaModelAdapter:
         # Return in a format that mimics transformers output
         return MockGenerationOutput(response)
     
-    def cuda(self):
-        """Mock cuda method for compatibility"""
-        return self
-    
     def to(self, device):
         """Mock to method for compatibility"""
         return self
