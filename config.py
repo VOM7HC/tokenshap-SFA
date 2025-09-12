@@ -5,12 +5,7 @@ Configuration and enums for TokenSHAP with SFA
 from dataclasses import dataclass
 from enum import Enum
 
-# Make torch optional
-try:
-    import torch
-    TORCH_AVAILABLE = True
-except ImportError:
-    TORCH_AVAILABLE = False
+import torch
 
 
 class AttributionMethod(Enum):
@@ -44,7 +39,7 @@ class TokenSHAPConfig:
     cache_responses: bool = True
     cache_size: int = 10000
     parallel_workers: int = 4
-    use_gpu: bool = TORCH_AVAILABLE and torch.cuda.is_available() if TORCH_AVAILABLE else False
+    use_gpu: bool = torch.cuda.is_available()
     
     # Model parameters
     max_input_length: int = 512
