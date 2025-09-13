@@ -45,7 +45,7 @@ class TokenSHAPWithSFA:
         self.sfa_learner = SFAMetaLearner(config)
         self.cot_explainer = CoTTokenSHAP(model, tokenizer, config)
         
-        # Enhanced SFA features (Claude Opus 4.1)
+        # Enhanced SFA features
         import os
         self.sfa_model_path = "models/sfa_trained.pkl"
         os.makedirs("models", exist_ok=True)
@@ -155,7 +155,7 @@ class TokenSHAPWithSFA:
     
     def compute_augmented_shapley(self, prompt: str) -> Dict[str, float]:
         """
-        Compute Shapley values with P, SHAP, P+SHAP augmentation (Claude Opus 4.1)
+        Compute Shapley values with P, SHAP, P+SHAP augmentation
         """
         tokens = self.token_explainer.processor.tokenize(prompt)
         
@@ -234,7 +234,7 @@ class TokenSHAPWithSFA:
     
     def explain_augmented(self, prompt: str, method: str = "augmented", **kwargs) -> Dict[str, Any]:
         """
-        Enhanced explain interface with SFA augmentation options (Claude Opus 4.1)
+        Enhanced explain interface with SFA augmentation options
         
         Args:
             prompt: Text to explain
@@ -258,7 +258,7 @@ class TokenSHAPWithSFA:
             return {'token_attributions': self.compute_augmented_shapley(prompt)}
     
     def get_sfa_stats(self) -> Dict[str, Any]:
-        """Get enhanced SFA statistics (Claude Opus 4.1)"""
+        """Get enhanced SFA statistics"""
         if hasattr(self.sfa_learner, 'get_training_stats'):
             return self.sfa_learner.get_training_stats()
         else:

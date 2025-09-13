@@ -17,12 +17,12 @@ logger = logging.getLogger(__name__)
 
 
 class SFAMetaLearner:
-    """Enhanced SFA Meta-Learner with 3-model augmentation approach (Claude Opus 4.1)"""
+    """Enhanced SFA Meta-Learner with 3-model augmentation approach"""
     
     def __init__(self, config: TokenSHAPConfig):
         self.config = config
         
-        # Three separate models for each augmentation type (Claude Opus 4.1 approach)
+        # Three separate models for each augmentation type
         self.meta_model_p = None          # Predictions only
         self.meta_model_shap = None       # SHAP values only  
         self.meta_model_p_shap = None     # Both P and SHAP
@@ -107,12 +107,12 @@ class SFAMetaLearner:
         return np.array(augmented, dtype=np.float32)
     
     def train(self, training_data: List[Tuple[str, Dict[str, float]]]) -> Dict[str, Any]:
-        """Train using 3-model approach (Claude Opus 4.1)"""
+        """Train using 3-model approach"""
         return self.train_with_three_augmentations(training_data)
     
 
     def train_with_three_augmentations(self, training_data: List[Tuple[str, Dict[str, float]]]) -> Dict[str, Any]:
-        """Train three models with P, SHAP, and P+SHAP augmentations (Claude Opus 4.1)"""
+        """Train three models with P, SHAP, and P+SHAP augmentations"""
         
         logger.info(f"Training 3-model SFA approach with {len(training_data)} samples")
         
@@ -290,7 +290,7 @@ class SFAMetaLearner:
         return np.array(shap_features, dtype=np.float32)
 
     def predict_ensemble(self, prompt: str, tokens: List[str]) -> Dict[str, float]:
-        """Predict using ensemble of all three models (Claude Opus 4.1)"""
+        """Predict using ensemble of all three models"""
         
         if not (self.meta_model_p and self.meta_model_shap and self.meta_model_p_shap):
             # Fallback to standard prediction if 3-model not available
@@ -346,6 +346,44 @@ class SFAMetaLearner:
         
         return result
     
+    def predict(self, prompt: str, tokens: List[str]) -> Dict[str, float]:
+        """
+        Standard predict method that uses the best available model
+        
+        Args:
+            prompt: Input text prompt
+            tokens: List of tokens from the prompt
+            
+        Returns:
+            Dictionary mapping tokens to their predicted importance scores
+        """
+        
+        if not self.is_trained:
+            raise ValueError("SFA model not trained. Train the model first.")
+        
+        # Use ensemble prediction if 3-model architecture is available
+        if (self.meta_model_p is not None and 
+            self.meta_model_shap is not None and 
+            self.meta_model_p_shap is not None):
+            # Use 3-model ensemble for best accuracy
+            return self.predict_ensemble(prompt, tokens)
+        
+        # Otherwise use base model prediction
+        base_features = self.extract_features(tokens, prompt)
+        
+        if self.base_model is not None:
+            predictions = self.base_model.predict(base_features)
+        else:
+            raise ValueError("No trained model available for prediction")
+        
+        # Create result dictionary
+        result = {token: float(pred) for token, pred in zip(tokens, predictions)}
+        
+        # Cache the result
+        self.shapley_cache[prompt] = result
+        
+        return result
+
     def _prepare_base_features(self, training_data: List[Tuple[str, Dict[str, float]]]) -> Tuple[np.ndarray, np.ndarray, List[str]]:
         """Prepare base features for training"""
         all_features = []
@@ -419,7 +457,7 @@ class SFAMetaLearner:
     def save_training_data(self, filepath: str):
         """Save training data and models (3-model format)"""
         state = {
-            # 3-model architecture (Claude Opus 4.1)
+            # 3-model architecture
             'meta_model_p': self.meta_model_p,
             'meta_model_shap': self.meta_model_shap,
             'meta_model_p_shap': self.meta_model_p_shap,

@@ -227,7 +227,7 @@ class CoTTokenSHAP:
         for step in cot_steps:
             tokens = self.processor.tokenize(step)
             
-            # Use SFA predictions with 3-model ensemble (Claude Opus 4.1)
+            # Use SFA predictions with 3-model ensemble
             if sfa_learner.is_trained:
                 # Try 3-model ensemble first for best accuracy
                 if hasattr(sfa_learner, 'predict_ensemble'):

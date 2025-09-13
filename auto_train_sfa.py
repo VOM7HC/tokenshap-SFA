@@ -1,6 +1,5 @@
 """
 Auto-train SFA with enhanced training data and save for future use
-Based on Claude Opus 4.1 suggestions with Ollama integration
 """
 
 import os
